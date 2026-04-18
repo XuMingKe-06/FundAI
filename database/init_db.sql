@@ -221,12 +221,12 @@ CREATE INDEX idx_system_metrics_recorded ON system_metrics(recorded_at);
 
 -- 创建更新时间函数
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER AS $BODY$
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$BODY$ LANGUAGE plpgsql;
 
 -- 为需要的表添加触发器
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
