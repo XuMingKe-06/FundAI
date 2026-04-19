@@ -1,6 +1,7 @@
 """
 基金API端点
 """
+import logging
 from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -26,6 +27,9 @@ from app.schemas.fund import (
     FeeItem,
     FeesResponse
 )
+from app.data_sources.manager import datasource_manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/funds", tags=["基金"])
 
@@ -37,10 +41,11 @@ async def search_funds(
     size: int = Query(20, ge=1, le=100, description="每页数量"),
     type: Optional[str] = Query(None, description="基金类型"),
     session: AsyncSession = Depends(get_async_session),
+    redis: Redis = Depends(get_redis),
     current_user: User = Depends(get_current_user)
 ):
     """搜索基金"""
-    # 构建查询
+    # 首先尝试从数据库搜索
     query = select(Fund).where(Fund.fund_code != "")
     
     # 关键词搜索
@@ -69,9 +74,45 @@ async def search_funds(
         count_query = count_query.where(Fund.fund_type == type)
     
     total_result = await session.execute(count_query)
-    total = len(total_result.all())
+    db_total = len(total_result.all())
     
-    # 分页
+    # 如果数据库中没有结果，尝试从数据源搜索
+    if db_total == 0:
+        try:
+            # 初始化数据源管理器
+            await datasource_manager.initialize()
+            
+            # 从数据源搜索基金
+            search_results = await datasource_manager.search_funds(keyword, limit=size)
+            
+            if search_results:
+                # 构建响应
+                items = [
+                    FundListItem(
+                        fund_code=item.get("fund_code", ""),
+                        fund_name=item.get("fund_name", ""),
+                        fund_type=item.get("fund_type", ""),
+                        purchase_status="开放",
+                        current_scale=item.get("scale")
+                    )
+                    for item in search_results
+                ]
+                
+                return ApiResponse(
+                    code=200,
+                    message="success",
+                    data=PaginatedData(
+                        total=len(items),
+                        page=page,
+                        size=size,
+                        total_pages=1,
+                        items=items
+                    )
+                )
+        except Exception as e:
+            logger.error(f"从数据源搜索基金失败: {e}")
+    
+    # 从数据库分页获取
     offset = (page - 1) * size
     query = query.offset(offset).limit(size)
     
@@ -90,13 +131,13 @@ async def search_funds(
         for fund in funds
     ]
     
-    total_pages = (total + size - 1) // size
+    total_pages = (db_total + size - 1) // size
     
     return ApiResponse(
         code=200,
         message="success",
         data=PaginatedData(
-            total=total,
+            total=db_total,
             page=page,
             size=size,
             total_pages=total_pages,
@@ -121,17 +162,75 @@ async def get_fund_detail(
         fund_data = json.loads(cached_data)
         return ApiResponse(code=200, message="success", data=FundDetail(**fund_data))
     
-    # 查询基金信息
+    # 查询数据库中的基金信息
     result = await session.execute(
         select(Fund).where(Fund.fund_code == fund_code)
     )
     fund = result.scalar_one_or_none()
     
+    # 如果数据库中没有，尝试从数据源获取
     if not fund:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="基金不存在"
-        )
+        try:
+            # 初始化数据源管理器
+            await datasource_manager.initialize()
+            
+            # 从数据源获取基金信息
+            fund_info = await datasource_manager.get_fund_info(fund_code)
+            
+            if fund_info:
+                # 查询最新净值
+                nav_result = await session.execute(
+                    select(FundNav)
+                    .where(FundNav.fund_code == fund_code)
+                    .order_by(FundNav.nav_date.desc())
+                    .limit(1)
+                )
+                latest_nav = nav_result.scalar_one_or_none()
+                
+                # 构建响应
+                fund_detail = FundDetail(
+                    fund_code=fund_info.get("fund_code", fund_code),
+                    fund_name=fund_info.get("fund_name", "未知基金"),
+                    fund_type=fund_info.get("fund_type", ""),
+                    fund_manager=fund_info.get("fund_manager"),
+                    establish_date=fund_info.get("establish_date"),
+                    current_scale=fund_info.get("scale"),
+                    management_fee=fund_info.get("management_fee"),
+                    custody_fee=fund_info.get("custody_fee"),
+                    purchase_status="开放",
+                    redemption_status="开放",
+                    benchmark=None,
+                    is_qdii=False,
+                    share_class="A",
+                    latest_nav=LatestNav(
+                        nav_date=latest_nav.nav_date if latest_nav else None,
+                        unit_nav=latest_nav.unit_nav if latest_nav else None,
+                        accumulated_nav=latest_nav.accumulated_nav if latest_nav else None,
+                        daily_growth_rate=latest_nav.daily_growth_rate if latest_nav else None
+                    ) if latest_nav else None
+                )
+                
+                # 缓存结果
+                await redis.setex(
+                    cache_key,
+                    CacheExpire.FUND_INFO,
+                    json.dumps(fund_detail.model_dump(), default=str)
+                )
+                
+                return ApiResponse(code=200, message="success", data=fund_detail)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="基金不存在"
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"从数据源获取基金信息失败: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="基金不存在"
+            )
     
     # 查询最新净值
     nav_result = await session.execute(
@@ -198,10 +297,25 @@ async def get_fund_nav_history(
     fund_name = fund_result.scalar_one_or_none()
     
     if not fund_name:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="基金不存在"
-        )
+        # 尝试从数据源获取基金名称
+        try:
+            await datasource_manager.initialize()
+            fund_info = await datasource_manager.get_fund_info(fund_code)
+            if fund_info:
+                fund_name = fund_info.get("fund_name", "未知基金")
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="基金不存在"
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"从数据源获取基金信息失败: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="基金不存在"
+            )
     
     # 查询净值历史
     result = await session.execute(
@@ -213,6 +327,35 @@ async def get_fund_nav_history(
         .limit(limit)
     )
     nav_list = result.scalars().all()
+    
+    # 如果数据库中没有净值数据，尝试从数据源获取
+    if not nav_list:
+        try:
+            await datasource_manager.initialize()
+            nav_data = await datasource_manager.get_nav_history(fund_code, start_date, end_date)
+            
+            if nav_data:
+                nav_data_list = [
+                    NavData(
+                        nav_date=item.get("trade_date"),
+                        unit_nav=item.get("unit_nav"),
+                        accumulated_nav=item.get("accumulated_nav"),
+                        daily_growth_rate=item.get("daily_return")
+                    )
+                    for item in nav_data[:limit]
+                ]
+                
+                return ApiResponse(
+                    code=200,
+                    message="success",
+                    data=NavHistoryResponse(
+                        fund_code=fund_code,
+                        fund_name=fund_name,
+                        nav_data=nav_data_list
+                    )
+                )
+        except Exception as e:
+            logger.error(f"从数据源获取净值历史失败: {e}")
     
     # 构建响应
     nav_data = [
@@ -251,11 +394,49 @@ async def get_fund_holdings(
     )
     holdings = result.scalars().all()
     
+    # 如果数据库中没有持仓数据，尝试从数据源获取
     if not holdings:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="暂无持仓数据"
-        )
+        try:
+            await datasource_manager.initialize()
+            holdings_data = await datasource_manager.get_holdings(fund_code)
+            
+            if holdings_data:
+                # 构建持仓列表
+                holding_items = []
+                stocks = holdings_data.get("stocks", [])
+                for stock in stocks:
+                    holding_items.append(HoldingItem(
+                        stock_code=stock.get("stock_code", ""),
+                        stock_name=stock.get("stock_name", ""),
+                        holding_ratio=stock.get("holding_ratio"),
+                        holding_value=stock.get("holding_value"),
+                        industry=stock.get("industry", "")
+                    ))
+                
+                # 计算行业分布
+                industry_distribution = {}
+                for stock in stocks:
+                    industry = stock.get("industry")
+                    ratio = stock.get("holding_ratio")
+                    if industry and ratio:
+                        industry_distribution[industry] = industry_distribution.get(industry, 0) + float(ratio)
+                
+                return ApiResponse(
+                    code=200,
+                    message="success",
+                    data=HoldingsResponse(
+                        fund_code=fund_code,
+                        report_date=holdings_data.get("report_date"),
+                        holdings=holding_items,
+                        industry_distribution=industry_distribution
+                    )
+                )
+        except Exception as e:
+            logger.error(f"从数据源获取持仓信息失败: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="暂无持仓数据"
+            )
     
     # 获取报告期
     report_date = holdings[0].report_date
@@ -305,20 +486,70 @@ async def get_fund_fees(
     )
     fees = result.scalars().all()
     
+    # 如果数据库中没有费率数据，尝试从数据源获取
     if not fees:
-        # 返回默认费率
-        default_fees = [
-            FeeItem(holding_period="7天", purchase_fee="0.15%", redemption_fee="1.50%", total_fee="1.65%", breakeven="约1.68%"),
-            FeeItem(holding_period="15天", purchase_fee="0.15%", redemption_fee="0.75%", total_fee="0.90%", breakeven="约0.91%"),
-            FeeItem(holding_period="30天", purchase_fee="0.15%", redemption_fee="0.50%", total_fee="0.65%", breakeven="约0.66%"),
-            FeeItem(holding_period="180天", purchase_fee="0.15%", redemption_fee="0.25%", total_fee="0.40%", breakeven="约0.40%"),
-            FeeItem(holding_period="1年", purchase_fee="0.15%", redemption_fee="0.00%", total_fee="0.15%", breakeven="约0.15%")
-        ]
-        return ApiResponse(
-            code=200,
-            message="success",
-            data=FeesResponse(fund_code=fund_code, fees=default_fees)
-        )
+        try:
+            await datasource_manager.initialize()
+            fees_data = await datasource_manager.get_fund_fees(fund_code)
+            
+            if fees_data:
+                # 构建费率列表
+                fee_items = []
+                
+                # 获取赎回费率阶梯
+                redemption_ladder = fees_data.get("redemption_ladder", [])
+                purchase_fee = fees_data.get("purchase_fee", 0.0015)
+                
+                if redemption_ladder:
+                    for item in redemption_ladder:
+                        min_days = item.get("min_days", 0)
+                        max_days = item.get("max_days")
+                        fee_rate = item.get("fee_rate", 0)
+                        
+                        if max_days:
+                            period = f"{min_days}-{max_days}天"
+                        else:
+                            period = f"{min_days}天以上"
+                        
+                        total_fee = purchase_fee + fee_rate
+                        fee_items.append(FeeItem(
+                            holding_period=period,
+                            purchase_fee=f"{purchase_fee * 100:.2f}%",
+                            redemption_fee=f"{fee_rate * 100:.2f}%",
+                            total_fee=f"{total_fee * 100:.2f}%",
+                            breakeven=f"约{total_fee * 100:.2f}%"
+                        ))
+                else:
+                    # 使用默认费率
+                    default_fees = [
+                        FeeItem(holding_period="7天", purchase_fee="0.15%", redemption_fee="1.50%", total_fee="1.65%", breakeven="约1.68%"),
+                        FeeItem(holding_period="15天", purchase_fee="0.15%", redemption_fee="0.75%", total_fee="0.90%", breakeven="约0.91%"),
+                        FeeItem(holding_period="30天", purchase_fee="0.15%", redemption_fee="0.50%", total_fee="0.65%", breakeven="约0.66%"),
+                        FeeItem(holding_period="180天", purchase_fee="0.15%", redemption_fee="0.25%", total_fee="0.40%", breakeven="约0.40%"),
+                        FeeItem(holding_period="1年", purchase_fee="0.15%", redemption_fee="0.00%", total_fee="0.15%", breakeven="约0.15%")
+                    ]
+                    fee_items = default_fees
+                
+                return ApiResponse(
+                    code=200,
+                    message="success",
+                    data=FeesResponse(fund_code=fund_code, fees=fee_items)
+                )
+        except Exception as e:
+            logger.error(f"从数据源获取费率信息失败: {e}")
+            # 返回默认费率
+            default_fees = [
+                FeeItem(holding_period="7天", purchase_fee="0.15%", redemption_fee="1.50%", total_fee="1.65%", breakeven="约1.68%"),
+                FeeItem(holding_period="15天", purchase_fee="0.15%", redemption_fee="0.75%", total_fee="0.90%", breakeven="约0.91%"),
+                FeeItem(holding_period="30天", purchase_fee="0.15%", redemption_fee="0.50%", total_fee="0.65%", breakeven="约0.66%"),
+                FeeItem(holding_period="180天", purchase_fee="0.15%", redemption_fee="0.25%", total_fee="0.40%", breakeven="约0.40%"),
+                FeeItem(holding_period="1年", purchase_fee="0.15%", redemption_fee="0.00%", total_fee="0.15%", breakeven="约0.15%")
+            ]
+            return ApiResponse(
+                code=200,
+                message="success",
+                data=FeesResponse(fund_code=fund_code, fees=default_fees)
+            )
     
     # 构建费率列表
     fee_items = []

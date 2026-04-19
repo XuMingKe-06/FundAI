@@ -1,6 +1,7 @@
 """
 会话管理API端点
 """
+import logging
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -11,9 +12,11 @@ from app.core.database import get_async_session
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.fund import Fund
-from app.models.analysis import AnalysisSession, AgentOutput
+from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
 from app.schemas.common import ApiResponse, PaginatedData
 from app.schemas.analysis import SessionListItem, SessionDetail, AgentOutputInfo
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["会话"])
 
@@ -61,9 +64,16 @@ async def get_sessions(
         short_term_direction = None
         long_term_direction = None
         if s.status == "completed":
-            # TODO: 从决策报告中获取方向
-            short_term_direction = "买入"
-            long_term_direction = "买入"
+            # 从决策报告中获取方向
+            report_result = await session.execute(
+                select(DecisionReport).where(DecisionReport.session_id == s.id)
+            )
+            report = report_result.scalar_one_or_none()
+            if report:
+                short_term_decision = report.short_term_decision or {}
+                long_term_decision = report.long_term_decision or {}
+                short_term_direction = _direction_to_chinese(short_term_decision.get("direction"))
+                long_term_direction = _direction_to_chinese(long_term_decision.get("direction"))
         
         items.append(SessionListItem(
             session_id=str(s.id),
@@ -89,6 +99,18 @@ async def get_sessions(
             items=items
         )
     )
+
+
+def _direction_to_chinese(direction: Optional[str]) -> Optional[str]:
+    """将方向转换为中文"""
+    if not direction:
+        return None
+    direction_map = {
+        "buy": "买入",
+        "sell": "卖出",
+        "hold": "持有"
+    }
+    return direction_map.get(direction, direction)
 
 
 @router.get("/{session_id}", response_model=ApiResponse[SessionDetail])
@@ -141,16 +163,10 @@ async def get_session_detail(
         for ao in agent_outputs
     ]
     
-    # 如果没有智能体输出，返回模拟数据
-    if not agent_output_list:
-        agent_output_list = [
-            AgentOutputInfo(agent_type="fundamental", status="completed", score=4.2, summary="基金经理经验丰富，持仓结构合理", duration_ms=8500),
-            AgentOutputInfo(agent_type="technical", status="completed", score=3.8, summary="趋势向上，RSI中性偏强", duration_ms=7200),
-            AgentOutputInfo(agent_type="risk", status="completed", score=3.5, summary="波动率适中，需关注集中度风险", duration_ms=6500),
-            AgentOutputInfo(agent_type="cost", status="completed", score=4.0, summary="短线操作成本可接受", duration_ms=5800),
-            AgentOutputInfo(agent_type="sentiment", status="completed", score=3.0, summary="市场情绪偏正面", duration_ms=6200),
-            AgentOutputInfo(agent_type="decision", status="completed", score=None, summary="综合研判完成，生成双轨决策", duration_ms=3200)
-        ]
+    # 如果没有智能体输出且会话状态为完成，返回空列表而不是模拟数据
+    # 前端应根据会话状态判断是否需要显示智能体输出
+    if not agent_output_list and analysis_session.status not in ["pending", "running"]:
+        logger.warning(f"会话 {session_id} 已完成但没有智能体输出数据")
     
     return ApiResponse(
         code=200,
