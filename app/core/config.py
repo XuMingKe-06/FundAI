@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
     
+    # 阿里云大模型配置
+    ALIYUN_LLM_API_KEY: str = ""
+    ALIYUN_LLM_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    ALIYUN_EMBEDDING_MODEL: str = "text-embedding-v3"
+    
     # 数据源配置
     TUSHARE_TOKEN: str = ""
     
@@ -47,6 +52,14 @@ class Settings(BaseSettings):
     # 限流配置
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_PERIOD: int = 60
+    
+    # RAG 配置
+    CHROMA_PERSIST_DIR: str = "./data/chroma"
+    EMBEDDING_MODEL_NAME: str = "text-embedding-v3"
+    EMBEDDING_MODE: str = "aliyun"  # "local" 使用本地模型, "api" 使用 OpenAI API, "aliyun" 使用阿里云
+    RAG_TOP_K: int = 5
+    RAG_CHUNK_SIZE: int = 500
+    RAG_CHUNK_OVERLAP: int = 50
     
     class Config:
         env_file = ".env"

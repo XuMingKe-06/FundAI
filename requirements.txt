@@ -39,6 +39,11 @@ langchain-core>=1.0.7
 langgraph>=1.0.3
 openai>=1.55.0
 
+# RAG (Retrieval-Augmented Generation)
+chromadb>=0.4.22
+langchain-chroma>=0.1.4
+sentence-transformers>=2.2.2
+
 # Data Source
 tushare>=1.4.3
 akshare>=1.18.55

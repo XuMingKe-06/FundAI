@@ -308,6 +308,20 @@ class RiskAgent(BaseAgent):
             for alert in concentration_alerts:
                 self.add_thinking(alert)
             
+            # RAG检索：检索历史风险案例
+            try:
+                risk_knowledge = await self.retrieve_knowledge(
+                    query=f"基金风险评估 波动率 回撤 风险案例",
+                    collection_name="analysis_cases",
+                    top_k=3
+                )
+                if risk_knowledge:
+                    self._rag_context.extend([
+                        item.get("content", "") for item in risk_knowledge if item.get("content")
+                    ])
+            except Exception as e:
+                self.add_thinking(f"风险案例检索失败: {str(e)}")
+            
             risk_level = self._assess_risk_level(annual_volatility, max_drawdown)
             
             risk_alerts = []

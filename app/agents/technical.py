@@ -457,6 +457,21 @@ class TechnicalAgent(BaseAgent):
                 percentile_status = "合理区间"
             self.add_thinking(f"当前估值处于近3年{percentile}%分位，属于{percentile_status}")
             
+            # RAG检索：检索相似走势案例
+            try:
+                trend_direction = "上升" if ma_trend == "多头排列" else ("下降" if ma_trend == "空头排列" else "震荡")
+                trend_knowledge = await self.retrieve_knowledge(
+                    query=f"基金技术分析 {trend_direction} MACD {macd_signal} 走势案例",
+                    collection_name="analysis_cases",
+                    top_k=3
+                )
+                if trend_knowledge:
+                    self._rag_context.extend([
+                        item.get("content", "") for item in trend_knowledge if item.get("content")
+                    ])
+            except Exception as e:
+                self.add_thinking(f"走势案例检索失败: {str(e)}")
+            
             # 生成走势预测
             self.add_thinking("正在进行走势预测...")
             prediction = self._generate_prediction(

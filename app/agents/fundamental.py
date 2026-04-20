@@ -45,6 +45,20 @@ class FundamentalAgent(BaseAgent):
         holding_score = self._calculate_holding_score(top10_ratio)
         score_factors.append(("持仓结构", holding_score))
         
+        # RAG检索：检索相似持仓结构案例
+        try:
+            holding_knowledge = await self.retrieve_knowledge(
+                query=f"基金持仓 {industry_concentration} 行业配置 分析",
+                collection_name="analysis_cases",
+                top_k=3
+            )
+            if holding_knowledge:
+                self._rag_context.extend([
+                    item.get("content", "") for item in holding_knowledge if item.get("content")
+                ])
+        except Exception as e:
+            self.add_thinking(f"持仓结构案例检索失败: {str(e)}")
+        
         # 3. 获取基金经理信息
         self.add_thinking("正在分析基金经理履历...")
         manager_info = await self._get_fund_manager(fund_code)
@@ -54,6 +68,20 @@ class FundamentalAgent(BaseAgent):
         manager_score = manager_analysis.get("score", 2.5)
         
         self.add_thinking(f"基金经理从业经验{experience_years}年，管理本基金时间{'较长' if experience_years >= 5 else '一般'}，任期回报{'优秀' if manager_score >= 4 else '良好'}...")
+        
+        # RAG检索：检索基金经理历史表现报告
+        try:
+            manager_knowledge = await self.retrieve_knowledge(
+                query=f"基金经理 {fund_manager_name} 历史表现 管理能力",
+                collection_name="fund_knowledge",
+                top_k=3
+            )
+            if manager_knowledge:
+                self._rag_context.extend([
+                    item.get("content", "") for item in manager_knowledge if item.get("content")
+                ])
+        except Exception as e:
+            self.add_thinking(f"基金经理知识检索失败: {str(e)}")
         
         score_factors.append(("基金经理", manager_score))
         

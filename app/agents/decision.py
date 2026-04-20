@@ -140,6 +140,20 @@ class DecisionAgent(BaseAgent):
         )
         await asyncio.sleep(0.3)
         
+        # RAG检索：检索投资策略知识
+        try:
+            strategy_knowledge = await self.retrieve_knowledge(
+                query=f"投资决策 {short_term_decision['direction']} {long_term_decision['direction']} 策略",
+                collection_name="investment_strategy",
+                top_k=5
+            )
+            if strategy_knowledge:
+                self._rag_context.extend([
+                    item.get("content", "") for item in strategy_knowledge if item.get("content")
+                ])
+        except Exception as e:
+            self.add_thinking(f"投资策略检索失败: {str(e)}")
+        
         # 生成走势预测数据
         self.add_thinking("正在生成走势预测数据...")
         await asyncio.sleep(0.3)

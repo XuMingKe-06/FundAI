@@ -59,3 +59,7 @@ Thumbs.db
 
 # Alembic
 migrations/versions/*.pyc
+
+# RAG 数据目录
+data/
+!data/.gitkeep

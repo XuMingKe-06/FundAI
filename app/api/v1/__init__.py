@@ -3,7 +3,7 @@ API V1 路由
 """
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, funds, analysis, sessions
+from app.api.v1.endpoints import auth, funds, analysis, sessions, knowledge
 
 router = APIRouter(prefix="/v1")
 
@@ -12,3 +12,4 @@ router.include_router(auth.router)
 router.include_router(funds.router)
 router.include_router(analysis.router)
 router.include_router(sessions.router)
+router.include_router(knowledge.router)

@@ -63,6 +63,20 @@ class SentimentAgent(BaseAgent):
             news_data = await self._get_news_sentiment(fund_code)
             self.add_thinking(f"新闻舆情分析完成：共{news_data['total']}条新闻，正面{news_data['positive']}条，负面{news_data['negative']}条")
             
+            # RAG检索：检索行业新闻和研究报告
+            try:
+                news_knowledge = await self.retrieve_knowledge(
+                    query=f"基金情绪分析 市场情绪 新闻舆情",
+                    collection_name="fund_knowledge",
+                    top_k=3
+                )
+                if news_knowledge:
+                    self._rag_context.extend([
+                        item.get("content", "") for item in news_knowledge if item.get("content")
+                    ])
+            except Exception as e:
+                self.add_thinking(f"行业新闻检索失败: {str(e)}")
+            
             # Step 2: 获取资金流向数据
             self.add_thinking("正在分析相关板块资金流向...")
             await asyncio.sleep(0.3)
