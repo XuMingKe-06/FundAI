@@ -283,24 +283,22 @@ async def run_analysis_with_streaming(
             async for event in progress_callback(agent_type, "completed", agent.score, agent.summary):
                 yield event
             
-            return agent_type, result
+            # 发送结果事件
+            yield f"event: result\ndata: {json.dumps({'agent_type': agent_type, 'result': result}, ensure_ascii=False)}\n\n"
             
         except Exception as e:
             logger.error(f"智能体 {agent_type} 执行失败: {e}")
             async for event in progress_callback(agent_type, "failed", None, str(e)):
                 yield event
-            return agent_type, {"error": str(e)}
+            # 发送错误结果事件
+            yield f"event: result\ndata: {json.dumps({'agent_type': agent_type, 'result': {'error': str(e)}}, ensure_ascii=False)}\n\n"
     
     # 并行执行所有分析智能体
     tasks = []
     for agent in orchestrator.analysis_agents:
         async def stream_agent(a=agent):
-            results = []
             async for event in run_agent_with_streaming(a):
-                results.append(event)
                 yield event
-            # 返回最后一个结果（agent_type, result）
-            return results[-1] if results else (a.agent_type, None)
         tasks.append(stream_agent())
     
     # 收集所有智能体结果

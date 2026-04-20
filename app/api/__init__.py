@@ -1,6 +1,6 @@
 """
 API模块初始化
 """
-from app.api.v1.router import router as api_v1_router
+from app.api.v1 import router as api_v1_router
 
 __all__ = ["api_v1_router"]

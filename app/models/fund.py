@@ -4,7 +4,7 @@
 import uuid
 from datetime import datetime, date
 from decimal import Decimal
-from sqlalchemy import Column, String, Boolean, DateTime, Date, Numeric, Text, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, Date, Numeric, Text, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -56,7 +56,7 @@ class FundNav(Base):
     
     # 联合唯一约束
     __table_args__ = (
-        {"unique_constraint": ("fund_code", "nav_date")},
+        UniqueConstraint("fund_code", "nav_date", name="uq_fund_nav_code_date"),
     )
     
     # 关联关系
