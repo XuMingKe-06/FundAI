@@ -3,6 +3,7 @@ Embedding 服务模块
 提供文本向量化功能，支持中文文本
 支持三种模式：本地模型模式、OpenAI API 模式、阿里云 API 模式
 """
+import os
 from typing import List, Optional
 from functools import lru_cache
 from app.core.config import settings
@@ -78,12 +79,20 @@ class EmbeddingService:
         """
         加载阿里云大模型 embedding
         使用 OpenAI 兼容接口
+        
+        API Key 读取优先级：
+        1. 系统环境变量 DASHSCOPE_API_KEY
+        2. 配置文件中的 ALIYUN_LLM_API_KEY
         """
         from openai import OpenAI
         
-        api_key = settings.ALIYUN_LLM_API_KEY
+        # 优先使用系统环境变量 DASHSCOPE_API_KEY
+        api_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
         if not api_key:
-            raise ValueError("请配置 ALIYUN_LLM_API_KEY")
+            raise ValueError(
+                "请配置阿里云百炼 API Key：设置系统环境变量 DASHSCOPE_API_KEY "
+                "或在 .env 文件中配置 ALIYUN_LLM_API_KEY"
+            )
         
         self._model = OpenAI(
             api_key=api_key,

@@ -28,13 +28,19 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # LLM配置
+    # 模型服务提供商：aliyun（开发环境）或 deepseek（生产环境）
+    LLM_PROVIDER: str = "aliyun"
+    
+    # DeepSeek 配置（生产环境）
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
     
-    # 阿里云大模型配置
+    # 阿里云百炼配置（开发环境）
+    # API Key 优先读取系统环境变量 DASHSCOPE_API_KEY
     ALIYUN_LLM_API_KEY: str = ""
     ALIYUN_LLM_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    ALIYUN_LLM_MODEL: str = "qwen3-max"
     ALIYUN_EMBEDDING_MODEL: str = "text-embedding-v3"
     
     # 数据源配置
