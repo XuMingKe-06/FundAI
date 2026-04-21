@@ -26,8 +26,6 @@ from app.schemas.auth import (
     SendCodeResponse,
     LoginRequest,
     LoginResponse,
-    RegisterRequest,
-    RegisterResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
     UserInfo
@@ -54,13 +52,12 @@ async def send_verification_code(
 ):
     """发送手机验证码"""
     phone = request.phone
-    code_type = request.type
     
     # 生成验证码
     code = generate_verification_code()
     
-    # 存储验证码到Redis
-    cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type=code_type)
+    # 存储验证码到Redis，统一使用 "auth" 类型
+    cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
     await redis.setex(cache_key, CacheExpire.VERIFY_CODE, code)
     
     # TODO: 调用短信服务发送验证码
@@ -74,86 +71,18 @@ async def send_verification_code(
     )
 
 
-@router.post("/register", response_model=ApiResponse[RegisterResponse])
-async def register(
-    request: RegisterRequest,
-    session: AsyncSession = Depends(get_async_session),
-    redis: Redis = Depends(get_redis)
-):
-    """用户注册"""
-    phone = request.phone
-    code = request.code
-    password = request.password
-    
-    # 验证验证码
-    cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="register")
-    saved_code = await redis.get(cache_key)
-    
-    if not saved_code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="验证码已过期，请重新获取"
-        )
-    
-    if saved_code != code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="验证码错误"
-        )
-    
-    # 检查用户是否已存在
-    result = await session.execute(
-        select(User).where(User.phone == phone)
-    )
-    existing_user = result.scalar_one_or_none()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="该手机号已注册"
-        )
-    
-    # 创建新用户
-    salt = generate_salt()
-    password_hash = get_password_hash(password + salt)
-    
-    new_user = User(
-        phone=phone,
-        password_hash=password_hash,
-        salt=salt,
-        role="investor",
-        risk_preference="neutral"
-    )
-    
-    session.add(new_user)
-    await session.commit()
-    await session.refresh(new_user)
-    
-    # 删除验证码
-    await redis.delete(cache_key)
-    
-    return ApiResponse(
-        code=200,
-        message="注册成功",
-        data=RegisterResponse(
-            user_id=str(new_user.id),
-            phone=new_user.phone
-        )
-    )
-
-
 @router.post("/login", response_model=ApiResponse[LoginResponse])
 async def login(
     request: LoginRequest,
     session: AsyncSession = Depends(get_async_session),
     redis: Redis = Depends(get_redis)
 ):
-    """用户登录"""
+    """用户登录（支持自动注册）"""
     phone = request.phone
     code = request.code
     
-    # 验证验证码
-    cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="login")
+    # 验证验证码，统一使用 "auth" 类型
+    cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
     saved_code = await redis.get(cache_key)
     
     if not saved_code:
@@ -174,11 +103,17 @@ async def login(
     )
     user = result.scalar_one_or_none()
     
+    # 用户不存在时自动创建新用户
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户不存在"
+        new_user = User(
+            phone=phone,
+            role="investor",
+            risk_preference="neutral"
         )
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
+        user = new_user
     
     if not user.is_active:
         raise HTTPException(
