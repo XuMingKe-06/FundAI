@@ -7,8 +7,6 @@ from app.schemas.auth import (
     SendCodeResponse,
     LoginRequest,
     LoginResponse,
-    RegisterRequest,
-    RegisterResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
     UserInfo
@@ -55,8 +53,6 @@ __all__ = [
     "SendCodeResponse",
     "LoginRequest",
     "LoginResponse",
-    "RegisterRequest",
-    "RegisterResponse",
     "RefreshTokenRequest",
     "RefreshTokenResponse",
     "UserInfo",

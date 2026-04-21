@@ -53,7 +53,19 @@ async def send_verification_code(
     """发送手机验证码"""
     phone = request.phone
     
-    # 生成验证码
+    # 开发环境：使用固定验证码，无需短信服务
+    if settings.DEBUG:
+        code = "123456"
+        cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
+        await redis.setex(cache_key, CacheExpire.VERIFY_CODE, code)
+        print(f"[开发模式] 手机号 {phone} 的验证码: {code}")
+        return ApiResponse(
+            code=200,
+            message="验证码发送成功（开发模式）",
+            data=SendCodeResponse(expire_in=CacheExpire.VERIFY_CODE)
+        )
+    
+    # 生产环境：生成随机验证码并发送短信
     code = generate_verification_code()
     
     # 存储验证码到Redis，统一使用 "auth" 类型
@@ -61,8 +73,8 @@ async def send_verification_code(
     await redis.setex(cache_key, CacheExpire.VERIFY_CODE, code)
     
     # TODO: 调用短信服务发送验证码
-    # 这里只是模拟，实际需要调用阿里云短信API
-    print(f"验证码: {code}")  # 开发环境打印验证码
+    # 实际需要调用阿里云短信API
+    print(f"验证码: {code}")
     
     return ApiResponse(
         code=200,
@@ -81,21 +93,28 @@ async def login(
     phone = request.phone
     code = request.code
     
-    # 验证验证码，统一使用 "auth" 类型
-    cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
-    saved_code = await redis.get(cache_key)
-    
-    if not saved_code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="验证码已过期，请重新获取"
-        )
-    
-    if saved_code != code:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="验证码错误"
-        )
+    # 开发环境：接受固定验证码 "123456"
+    if settings.DEBUG and code == "123456":
+        print(f"[开发模式] 手机号 {phone} 使用固定验证码登录")
+    else:
+        # 生产环境：验证 Redis 中的验证码
+        cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
+        saved_code = await redis.get(cache_key)
+        
+        if not saved_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码已过期，请重新获取"
+            )
+        
+        if saved_code != code:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="验证码错误"
+            )
+        
+        # 验证成功后删除验证码
+        await redis.delete(cache_key)
     
     # 查找用户
     result = await session.execute(
@@ -128,9 +147,6 @@ async def login(
     # 生成令牌
     access_token = create_access_token({"sub": str(user.id), "phone": user.phone})
     refresh_token = create_refresh_token({"sub": str(user.id), "phone": user.phone})
-    
-    # 删除验证码
-    await redis.delete(cache_key)
     
     return ApiResponse(
         code=200,
