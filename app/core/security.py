@@ -5,7 +5,7 @@ import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import jwt, JWTError
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -119,3 +119,45 @@ def require_role(roles: list):
             )
         return current_user
     return role_checker
+
+
+class OptionalHTTPBearer(HTTPBearer):
+    """可选的HTTP Bearer认证，允许无认证请求通过"""
+    
+    async def __call__(self, request: Request) -> Optional[HTTPAuthorizationCredentials]:
+        try:
+            return await super().__call__(request)
+        except HTTPException:
+            return None
+
+
+optional_security = OptionalHTTPBearer(auto_error=False)
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+    session: AsyncSession = Depends(get_async_session)
+) -> Optional[User]:
+    """获取当前用户（可选），无token或无效token时返回None"""
+    if credentials is None:
+        return None
+    
+    token = credentials.credentials
+    payload = decode_token(token)
+    
+    if payload is None:
+        return None
+    
+    user_id: str = payload.get("sub")
+    token_type: str = payload.get("type")
+    
+    if user_id is None or token_type != "access":
+        return None
+    
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if user is None or not user.is_active:
+        return None
+    
+    return user

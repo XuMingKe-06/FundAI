@@ -27,7 +27,21 @@ class TushareAdapter(BaseDataSource):
             try:
                 ts.set_token(self._token)
                 self._pro = ts.pro_api()
-                logger.info("Tushare API 客户端初始化成功")
+                
+                # 验证是否有权限访问 fund_basic 接口
+                try:
+                    test_df = self._pro.fund_basic(market='O', limit=1)
+                    if test_df is not None and not test_df.empty:
+                        self.is_available = True
+                        logger.info("Tushare API 客户端初始化成功，fund_basic 接口可用")
+                    else:
+                        self.is_available = False
+                        logger.warning("Tushare fund_basic 接口返回空数据，可能是权限不足")
+                except Exception as api_err:
+                    # 权限不足或其他 API 错误
+                    self.is_available = False
+                    logger.warning(f"Tushare fund_basic 接口不可用: {api_err}，将使用备用数据源")
+                    
             except Exception as e:
                 logger.error(f"Tushare API 客户端初始化失败: {e}")
                 self.is_available = False

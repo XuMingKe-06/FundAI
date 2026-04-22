@@ -133,10 +133,15 @@ class LLMService:
         """
         self._initialize()
         
+        # 验证 prompt 不为空，阿里云 API 要求 content 字段必须有值
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt 参数不能为空")
+        
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        # 只有当 system_prompt 非空时才添加 system 消息
+        if system_prompt and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        messages.append({"role": "user", "content": prompt.strip()})
         
         response = self._client.chat.completions.create(
             model=self._model,
@@ -171,10 +176,15 @@ class LLMService:
         """
         self._initialize()
         
+        # 验证 prompt 不为空，阿里云 API 要求 content 字段必须有值
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt 参数不能为空")
+        
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        # 只有当 system_prompt 非空时才添加 system 消息
+        if system_prompt and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        messages.append({"role": "user", "content": prompt.strip()})
         
         response = await self._async_client.chat.completions.create(
             model=self._model,
@@ -211,10 +221,15 @@ class LLMService:
         """
         self._initialize()
         
+        # 验证 prompt 不为空，阿里云 API 要求 content 字段必须有值
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt 参数不能为空")
+        
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        # 只有当 system_prompt 非空时才添加 system 消息
+        if system_prompt and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        messages.append({"role": "user", "content": prompt.strip()})
         
         stream = await self._async_client.chat.completions.create(
             model=self._model,

@@ -79,3 +79,16 @@ class RefreshTokenResponse(BaseModel):
     access_token: str = Field(..., description="新的访问令牌")
     token_type: str = Field(default="bearer", description="令牌类型")
     expires_in: int = Field(..., description="过期时间（秒）")
+
+
+class TokenCheckResponse(BaseModel):
+    """Token诊断响应"""
+    valid: bool = Field(..., description="Token是否有效")
+    user_id: Optional[str] = Field(default=None, description="用户ID")
+    phone: Optional[str] = Field(default=None, description="手机号")
+    token_type: Optional[str] = Field(default=None, description="Token类型")
+    expires_at: Optional[datetime] = Field(default=None, description="过期时间")
+    issued_at: Optional[datetime] = Field(default=None, description="签发时间")
+    user_exists: Optional[bool] = Field(default=None, description="用户是否存在")
+    user_active: Optional[bool] = Field(default=None, description="用户是否激活")
+    error: Optional[str] = Field(default=None, description="错误信息")

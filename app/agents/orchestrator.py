@@ -302,84 +302,161 @@ class AgentOrchestrator:
         Returns:
             包含基金信息的上下文字典
         """
+        # 规范化基金代码：Tushare 需要带 .OF 后缀
+        normalized_code = fund_code
+        if '.' not in fund_code:
+            normalized_code = f"{fund_code}.OF"
+        
+        logger.info(f"开始构建分析上下文，原始代码: {fund_code}, 规范化代码: {normalized_code}")
+        
         context: Dict[str, Any] = {
             "fund_code": fund_code,
+            "normalized_code": normalized_code,
             "build_time": datetime.now(timezone.utc).isoformat(),
-            "data_source": {}
+            "data_source": {},
+            "data_status": {}  # 记录各数据源的获取状态
         }
         
+        # 获取基金基础信息
         try:
-            fund_info = await datasource_manager.get_fund_info(fund_code)
+            fund_info = await datasource_manager.get_fund_info(normalized_code)
             if fund_info:
                 context["fund_info"] = fund_info
                 context["fund_name"] = fund_info.get("fund_name", "未知")
                 context["fund_type"] = fund_info.get("fund_type", "未知")
-                context["fund_scale"] = fund_info.get("current_scale", 0)
+                context["fund_scale"] = fund_info.get("scale") or fund_info.get("current_scale", 0)
                 context["establish_date"] = fund_info.get("establish_date")
                 context["fund_manager"] = fund_info.get("fund_manager", "未知")
-                logger.info(f"获取基金信息成功: {fund_code} - {context.get('fund_name')}")
+                context["data_status"]["fund_info"] = "success"
+                logger.info(f"获取基金信息成功: {normalized_code} - {context.get('fund_name')}")
             else:
-                logger.warning(f"未找到基金信息: {fund_code}")
-                context["fund_info"] = {}
-                context["fund_name"] = "未知"
+                # 尝试使用原始代码
+                fund_info = await datasource_manager.get_fund_info(fund_code)
+                if fund_info:
+                    context["fund_info"] = fund_info
+                    context["fund_name"] = fund_info.get("fund_name", "未知")
+                    context["fund_type"] = fund_info.get("fund_type", "未知")
+                    context["fund_scale"] = fund_info.get("scale") or fund_info.get("current_scale", 0)
+                    context["establish_date"] = fund_info.get("establish_date")
+                    context["fund_manager"] = fund_info.get("fund_manager", "未知")
+                    context["data_status"]["fund_info"] = "success"
+                    logger.info(f"获取基金信息成功(原始代码): {fund_code} - {context.get('fund_name')}")
+                else:
+                    logger.warning(f"未找到基金信息: {fund_code}")
+                    context["fund_info"] = {}
+                    context["fund_name"] = "未知"
+                    context["data_status"]["fund_info"] = "not_found"
         except Exception as e:
             logger.error(f"获取基金信息失败: {e}")
             context["fund_info"] = {}
             context["fund_name"] = "未知"
+            context["data_status"]["fund_info"] = f"error: {str(e)}"
         
+        # 获取净值历史数据
         try:
             end_date = date.today()
             start_date = end_date - timedelta(days=365)
             nav_history = await datasource_manager.get_nav_history(
-                fund_code, start_date, end_date
+                normalized_code, start_date, end_date
             )
-            if nav_history:
+            if nav_history and len(nav_history) > 0:
                 context["nav_history"] = nav_history
                 context["nav_count"] = len(nav_history)
                 latest_nav = nav_history[-1] if nav_history else {}
                 context["current_nav"] = latest_nav.get("nav")
-                context["nav_date"] = latest_nav.get("date")
-                logger.info(f"获取净值历史成功: {fund_code}, 共 {len(nav_history)} 条记录")
+                context["nav_date"] = latest_nav.get("trade_date") or latest_nav.get("date")
+                context["data_status"]["nav_history"] = "success"
+                logger.info(f"获取净值历史成功: {normalized_code}, 共 {len(nav_history)} 条记录")
             else:
-                context["nav_history"] = []
-                context["nav_count"] = 0
+                # 尝试使用原始代码
+                nav_history = await datasource_manager.get_nav_history(
+                    fund_code, start_date, end_date
+                )
+                if nav_history and len(nav_history) > 0:
+                    context["nav_history"] = nav_history
+                    context["nav_count"] = len(nav_history)
+                    latest_nav = nav_history[-1] if nav_history else {}
+                    context["current_nav"] = latest_nav.get("nav")
+                    context["nav_date"] = latest_nav.get("trade_date") or latest_nav.get("date")
+                    context["data_status"]["nav_history"] = "success"
+                    logger.info(f"获取净值历史成功(原始代码): {fund_code}, 共 {len(nav_history)} 条记录")
+                else:
+                    context["nav_history"] = []
+                    context["nav_count"] = 0
+                    context["data_status"]["nav_history"] = "not_found"
+                    logger.warning(f"未找到净值历史: {fund_code}")
         except Exception as e:
             logger.error(f"获取净值历史失败: {e}")
             context["nav_history"] = []
             context["nav_count"] = 0
+            context["data_status"]["nav_history"] = f"error: {str(e)}"
         
+        # 获取持仓信息
         try:
-            holdings = await datasource_manager.get_holdings(fund_code)
+            holdings = await datasource_manager.get_holdings(normalized_code)
             if holdings:
                 context["holdings"] = holdings
-                logger.info(f"获取持仓信息成功: {fund_code}")
+                context["data_status"]["holdings"] = "success"
+                logger.info(f"获取持仓信息成功: {normalized_code}")
             else:
-                context["holdings"] = {}
+                holdings = await datasource_manager.get_holdings(fund_code)
+                if holdings:
+                    context["holdings"] = holdings
+                    context["data_status"]["holdings"] = "success"
+                    logger.info(f"获取持仓信息成功(原始代码): {fund_code}")
+                else:
+                    context["holdings"] = {}
+                    context["data_status"]["holdings"] = "not_found"
         except Exception as e:
             logger.error(f"获取持仓信息失败: {e}")
             context["holdings"] = {}
+            context["data_status"]["holdings"] = f"error: {str(e)}"
         
+        # 获取费率信息
         try:
-            fees = await datasource_manager.get_fund_fees(fund_code)
+            fees = await datasource_manager.get_fund_fees(normalized_code)
             if fees:
                 context["fees"] = fees
-                logger.info(f"获取费率信息成功: {fund_code}")
+                context["data_status"]["fees"] = "success"
+                logger.info(f"获取费率信息成功: {normalized_code}")
             else:
-                context["fees"] = {}
+                fees = await datasource_manager.get_fund_fees(fund_code)
+                if fees:
+                    context["fees"] = fees
+                    context["data_status"]["fees"] = "success"
+                    logger.info(f"获取费率信息成功(原始代码): {fund_code}")
+                else:
+                    context["fees"] = {}
+                    context["data_status"]["fees"] = "not_found"
         except Exception as e:
             logger.error(f"获取费率信息失败: {e}")
             context["fees"] = {}
+            context["data_status"]["fees"] = f"error: {str(e)}"
         
+        # 获取基金经理信息
         try:
-            manager_info = await datasource_manager.get_fund_manager(fund_code)
+            manager_info = await datasource_manager.get_fund_manager(normalized_code)
             if manager_info:
                 context["manager_info"] = manager_info
-                logger.info(f"获取基金经理信息成功: {fund_code}")
+                context["data_status"]["manager_info"] = "success"
+                logger.info(f"获取基金经理信息成功: {normalized_code}")
             else:
-                context["manager_info"] = {}
+                manager_info = await datasource_manager.get_fund_manager(fund_code)
+                if manager_info:
+                    context["manager_info"] = manager_info
+                    context["data_status"]["manager_info"] = "success"
+                    logger.info(f"获取基金经理信息成功(原始代码): {fund_code}")
+                else:
+                    context["manager_info"] = {}
+                    context["data_status"]["manager_info"] = "not_found"
         except Exception as e:
             logger.error(f"获取基金经理信息失败: {e}")
             context["manager_info"] = {}
+            context["data_status"]["manager_info"] = f"error: {str(e)}"
+        
+        # 记录数据获取摘要
+        data_summary = {k: v for k, v in context["data_status"].items()}
+        logger.info(f"数据获取摘要: {data_summary}")
         
         return context
     

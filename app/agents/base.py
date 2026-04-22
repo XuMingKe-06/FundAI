@@ -190,6 +190,11 @@ class BaseAgent(ABC):
         if system_prompt is None:
             system_prompt = self.get_system_prompt()
         
+        # 验证 prompt 不为空
+        if not prompt or not prompt.strip():
+            logger.warning(f"智能体 {self.name} 收到空的 prompt，使用默认提示")
+            prompt = "请进行分析"
+        
         await self.add_thinking("正在调用大语言模型进行分析...")
         
         if use_tools and self.get_tools():
@@ -226,13 +231,22 @@ class BaseAgent(ABC):
         Returns:
             最终响应文本
         """
+        # 验证 prompt 不为空
+        if not prompt or not prompt.strip():
+            logger.warning(f"智能体 {self.name} 收到空的 prompt，使用默认提示")
+            prompt = "请进行分析"
+        
+        # 验证 system_prompt 不为空
+        if not system_prompt or not system_prompt.strip():
+            system_prompt = self._get_default_system_prompt()
+        
         client = self._llm_service.get_async_client()
         model = self._llm_service.get_model_name()
         tools = self.get_tools()
         
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": system_prompt.strip()},
+            {"role": "user", "content": prompt.strip()}
         ]
         
         for iteration in range(max_iterations):
@@ -246,11 +260,18 @@ class BaseAgent(ABC):
             
             message = response.choices[0].message
             
-            if message.content:
+            # 处理 assistant 消息：如果有 content 才添加
+            # 阿里云 API 要求 content 字段必须有值
+            if message.content and message.content.strip():
                 messages.append({"role": "assistant", "content": message.content})
             
             if message.tool_calls:
-                messages.append(message)
+                # 如果有工具调用但没有 content，需要添加一个空的 assistant 消息
+                # 但阿里云不允许空 content，所以添加一个占位符
+                if not message.content or not message.content.strip():
+                    messages.append({"role": "assistant", "content": "正在调用工具...", "tool_calls": message.tool_calls})
+                else:
+                    messages.append(message)
                 
                 for tool_call in message.tool_calls:
                     tool_name = tool_call.function.name
@@ -260,10 +281,12 @@ class BaseAgent(ABC):
                     
                     result = await self.execute_tool(tool_name, tool_args)
                     
+                    # 工具响应必须有 content
+                    tool_content = json.dumps(result.to_dict(), ensure_ascii=False)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(result.to_dict(), ensure_ascii=False)
+                        "content": tool_content if tool_content else "工具执行完成"
                     })
             else:
                 return message.content or ""

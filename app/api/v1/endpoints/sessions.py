@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from app.core.database import get_async_session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.fund import Fund
 from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
@@ -27,9 +27,23 @@ async def get_sessions(
     size: int = Query(20, ge=1, le=100, description="每页数量"),
     status: Optional[str] = Query(None, description="状态过滤"),
     session: AsyncSession = Depends(get_async_session),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """获取用户会话列表"""
+    """获取用户会话列表（支持可选认证）"""
+    # 未登录用户返回空列表
+    if current_user is None:
+        return ApiResponse(
+            code=200,
+            message="success",
+            data=PaginatedData(
+                total=0,
+                page=page,
+                size=size,
+                total_pages=0,
+                items=[]
+            )
+        )
+    
     # 构建查询
     query = select(AnalysisSession).where(AnalysisSession.user_id == current_user.id)
     

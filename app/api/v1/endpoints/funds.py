@@ -12,7 +12,7 @@ import json
 
 from app.core.database import get_async_session
 from app.core.redis_client import get_redis, CacheKeys, CacheExpire
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.fund import Fund, FundNav, FundHolding, FundFee
 from app.schemas.common import ApiResponse, PaginatedData
@@ -42,7 +42,7 @@ async def search_funds(
     type: Optional[str] = Query(None, description="基金类型"),
     session: AsyncSession = Depends(get_async_session),
     redis: Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """搜索基金"""
     # 首先尝试从数据库搜索
@@ -79,10 +79,7 @@ async def search_funds(
     # 如果数据库中没有结果，尝试从数据源搜索
     if db_total == 0:
         try:
-            # 初始化数据源管理器
-            await datasource_manager.initialize()
-            
-            # 从数据源搜索基金
+            # 从数据源搜索基金（会自动初始化）
             search_results = await datasource_manager.search_funds(keyword, limit=size)
             
             if search_results:
@@ -171,10 +168,7 @@ async def get_fund_detail(
     # 如果数据库中没有，尝试从数据源获取
     if not fund:
         try:
-            # 初始化数据源管理器
-            await datasource_manager.initialize()
-            
-            # 从数据源获取基金信息
+            # 从数据源获取基金信息（会自动初始化）
             fund_info = await datasource_manager.get_fund_info(fund_code)
             
             if fund_info:
@@ -297,9 +291,8 @@ async def get_fund_nav_history(
     fund_name = fund_result.scalar_one_or_none()
     
     if not fund_name:
-        # 尝试从数据源获取基金名称
+        # 尝试从数据源获取基金名称（会自动初始化）
         try:
-            await datasource_manager.initialize()
             fund_info = await datasource_manager.get_fund_info(fund_code)
             if fund_info:
                 fund_name = fund_info.get("fund_name", "未知基金")
@@ -331,7 +324,7 @@ async def get_fund_nav_history(
     # 如果数据库中没有净值数据，尝试从数据源获取
     if not nav_list:
         try:
-            await datasource_manager.initialize()
+            # 从数据源获取净值历史（会自动初始化）
             nav_data = await datasource_manager.get_nav_history(fund_code, start_date, end_date)
             
             if nav_data:
@@ -397,7 +390,7 @@ async def get_fund_holdings(
     # 如果数据库中没有持仓数据，尝试从数据源获取
     if not holdings:
         try:
-            await datasource_manager.initialize()
+            # 从数据源获取持仓信息（会自动初始化）
             holdings_data = await datasource_manager.get_holdings(fund_code)
             
             if holdings_data:
@@ -489,7 +482,7 @@ async def get_fund_fees(
     # 如果数据库中没有费率数据，尝试从数据源获取
     if not fees:
         try:
-            await datasource_manager.initialize()
+            # 从数据源获取费率信息（会自动初始化）
             fees_data = await datasource_manager.get_fund_fees(fund_code)
             
             if fees_data:

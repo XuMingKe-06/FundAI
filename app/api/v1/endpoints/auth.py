@@ -5,7 +5,8 @@ import random
 import secrets
 import string
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from redis.asyncio import Redis
@@ -29,7 +30,8 @@ from app.schemas.auth import (
     LoginResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
-    UserInfo
+    UserInfo,
+    TokenCheckResponse
 )
 
 router = APIRouter(prefix="/auth", tags=["认证"])
@@ -250,3 +252,143 @@ async def logout(
     """用户登出"""
     # TODO: 将令牌加入黑名单
     return ApiResponse(code=200, message="登出成功")
+
+
+@router.get("/check-token", response_model=ApiResponse[TokenCheckResponse])
+async def check_token(
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    Token诊断接口
+    
+    检查请求头中的Authorization token是否有效，返回详细的诊断信息。
+    用于排查认证问题。
+    """
+    from fastapi import Request
+    from datetime import datetime
+    
+    # 从请求头获取token
+    # 注意：这个接口不需要强制认证，我们手动解析token
+    from fastapi import Header
+    from typing import Optional
+    
+    # 重新定义一个不依赖Depends的版本
+    return ApiResponse(
+        code=200,
+        message="请使用POST方法传递token",
+        data=TokenCheckResponse(
+            valid=False,
+            error="请使用POST方法传递token"
+        )
+    )
+
+
+@router.post("/check-token", response_model=ApiResponse[TokenCheckResponse])
+async def check_token_post(
+    session: AsyncSession = Depends(get_async_session),
+    authorization: Optional[str] = Header(default=None)
+):
+    """
+    Token诊断接口（POST方法）
+    
+    检查请求头中的Authorization token是否有效，返回详细的诊断信息。
+    用于排查认证问题。
+    """
+    from datetime import datetime
+    
+    # 检查Authorization头是否存在
+    if not authorization:
+        return ApiResponse(
+            code=200,
+            message="未提供Authorization头",
+            data=TokenCheckResponse(
+                valid=False,
+                error="未提供Authorization头"
+            )
+        )
+    
+    # 解析Bearer token
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return ApiResponse(
+            code=200,
+            message="Authorization头格式错误",
+            data=TokenCheckResponse(
+                valid=False,
+                error="Authorization头格式错误，应为: Bearer <token>"
+            )
+        )
+    
+    token = parts[1]
+    
+    # 解码token
+    payload = decode_token(token)
+    
+    if payload is None:
+        return ApiResponse(
+            code=200,
+            message="Token无效或已过期",
+            data=TokenCheckResponse(
+                valid=False,
+                error="Token无效或已过期（JWT解码失败）"
+            )
+        )
+    
+    # 提取token信息
+    user_id = payload.get("sub")
+    phone = payload.get("phone")
+    token_type = payload.get("type")
+    exp = payload.get("exp")
+    iat = payload.get("iat")
+    
+    # 转换时间戳
+    expires_at = datetime.fromtimestamp(exp) if exp else None
+    issued_at = datetime.fromtimestamp(iat) if iat else None
+    
+    # 检查token类型
+    if token_type != "access":
+        return ApiResponse(
+            code=200,
+            message="Token类型错误",
+            data=TokenCheckResponse(
+                valid=False,
+                user_id=user_id,
+                phone=phone,
+                token_type=token_type,
+                expires_at=expires_at,
+                issued_at=issued_at,
+                error=f"Token类型错误，期望'access'，实际为'{token_type}'"
+            )
+        )
+    
+    # 检查用户是否存在
+    user_exists = False
+    user_active = False
+    
+    if user_id:
+        result = await session.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            user_exists = True
+            user_active = user.is_active
+    
+    # 构建响应
+    is_valid = user_exists and user_active
+    
+    return ApiResponse(
+        code=200,
+        message="Token诊断完成",
+        data=TokenCheckResponse(
+            valid=is_valid,
+            user_id=user_id,
+            phone=phone,
+            token_type=token_type,
+            expires_at=expires_at,
+            issued_at=issued_at,
+            user_exists=user_exists,
+            user_active=user_active,
+            error=None if is_valid else ("用户不存在" if not user_exists else "用户已被禁用")
+        )
+    )

@@ -235,7 +235,7 @@ class DataSourceManager:
         搜索基金
         
         优先使用主数据源，失败时自动切换到备用数据源。
-        搜索结果不缓存（实时性要求较高）
+        搜索结果缓存5分钟（平衡实时性和性能）
         
         Args:
             keyword: 搜索关键词
@@ -246,11 +246,23 @@ class DataSourceManager:
         """
         await self._ensure_initialized()
         
-        # 搜索结果不缓存，直接执行
+        # 搜索结果缓存键
+        cache_key = f"fund:search:{keyword}:{limit}"
+        cache_expire = 300  # 5分钟缓存
+        
+        # 尝试从缓存获取
+        cached_result = await self._get_cache(cache_key)
+        if cached_result is not None:
+            logger.info(f"搜索基金 '{keyword}' 缓存命中，找到 {len(cached_result)} 条结果")
+            return cached_result
+        
+        # 执行搜索
         result = await self._execute_with_fallback(
             "search_funds",
             keyword,
-            limit
+            limit,
+            cache_key=cache_key,
+            cache_expire=cache_expire
         )
         
         if result:

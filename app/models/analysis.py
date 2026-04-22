@@ -15,7 +15,7 @@ class AnalysisSession(Base):
     __tablename__ = "analysis_sessions"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)  # 允许为空，支持匿名用户
     fund_code = Column(String(6), ForeignKey("funds.fund_code"), nullable=False, index=True)
     user_preference = Column(String(20), nullable=False, default="neutral")
     status = Column(String(20), nullable=False, default="pending")
