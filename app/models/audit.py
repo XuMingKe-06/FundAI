@@ -3,8 +3,9 @@
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB, INET
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -14,7 +15,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     username = Column(String(100), nullable=True)
     action = Column(String(50), nullable=False, index=True)
     resource_type = Column(String(50), nullable=False)
@@ -25,6 +26,9 @@ class AuditLog(Base):
     response_status = Column(Integer, nullable=True)
     response_data = Column(JSONB, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # 关联关系
+    user = relationship("User", back_populates="audit_logs")
     
     def __repr__(self):
         return f"<AuditLog {self.action} {self.resource_type}>"

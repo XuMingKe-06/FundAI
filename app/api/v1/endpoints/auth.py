@@ -2,6 +2,7 @@
 认证API端点
 """
 import random
+import secrets
 import string
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -53,11 +54,15 @@ async def send_verification_code(
     """发送手机验证码"""
     phone = request.phone
     
+    print(f"[Auth] Received request: send_verification_code")
+    print(f"[Auth] Request params: phone={phone}")
+    
     # 开发环境：使用固定验证码，无需短信服务
     if settings.DEBUG:
         code = "123456"
         cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
         await redis.setex(cache_key, CacheExpire.VERIFY_CODE, code)
+        print(f"[Auth] Processing result: code={code}, cache_key={cache_key}, stored=True, mode=debug")
         print(f"[开发模式] 手机号 {phone} 的验证码: {code}")
         return ApiResponse(
             code=200,
@@ -71,6 +76,8 @@ async def send_verification_code(
     # 存储验证码到Redis，统一使用 "auth" 类型
     cache_key = CacheKeys.VERIFY_CODE.format(phone=phone, type="auth")
     await redis.setex(cache_key, CacheExpire.VERIFY_CODE, code)
+    
+    print(f"[Auth] Processing result: code={code}, cache_key={cache_key}, stored=True, mode=production")
     
     # TODO: 调用短信服务发送验证码
     # 实际需要调用阿里云短信API
@@ -93,6 +100,9 @@ async def login(
     phone = request.phone
     code = request.code
     
+    print(f"[Auth] Received request: login")
+    print(f"[Auth] Request params: phone={phone}, code={code}")
+    
     # 开发环境：接受固定验证码 "123456"
     if settings.DEBUG and code == "123456":
         print(f"[开发模式] 手机号 {phone} 使用固定验证码登录")
@@ -102,12 +112,14 @@ async def login(
         saved_code = await redis.get(cache_key)
         
         if not saved_code:
+            print(f"[Auth] Processing result: verification_code_expired=True, phone={phone}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="验证码已过期，请重新获取"
             )
         
         if saved_code != code:
+            print(f"[Auth] Processing result: verification_code_invalid=True, phone={phone}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="验证码错误"
@@ -115,17 +127,22 @@ async def login(
         
         # 验证成功后删除验证码
         await redis.delete(cache_key)
+        print(f"[Auth] Processing result: verification_code_valid=True, phone={phone}")
     
     # 查找用户
     result = await session.execute(
         select(User).where(User.phone == phone)
     )
     user = result.scalar_one_or_none()
+    print(f"[Auth] Processing result: user_exists={user is not None}, user_id={user.id if user else None}")
     
     # 用户不存在时自动创建新用户
     if not user:
+        salt = generate_salt()
         new_user = User(
             phone=phone,
+            password_hash=get_password_hash("placeholder_password"),
+            salt=salt,
             role="investor",
             risk_preference="neutral"
         )
@@ -133,8 +150,10 @@ async def login(
         await session.commit()
         await session.refresh(new_user)
         user = new_user
+        print(f"[Auth] Processing result: new_user_created=True, user_id={user.id}, phone={user.phone}")
     
     if not user.is_active:
+        print(f"[Auth] Processing result: user_inactive=True, user_id={user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="用户已被禁用"
@@ -147,6 +166,8 @@ async def login(
     # 生成令牌
     access_token = create_access_token({"sub": str(user.id), "phone": user.phone})
     refresh_token = create_refresh_token({"sub": str(user.id), "phone": user.phone})
+    
+    print(f"[Auth] Processing result: login_success=True, user_id={user.id}, access_token_generated=True")
     
     return ApiResponse(
         code=200,

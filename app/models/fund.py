@@ -4,7 +4,7 @@
 import uuid
 from datetime import datetime, date
 from decimal import Decimal
-from sqlalchemy import Column, String, Boolean, DateTime, Date, Numeric, Text, Integer, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Date, Numeric, Text, Integer, UniqueConstraint, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -47,7 +47,7 @@ class FundNav(Base):
     __tablename__ = "fund_nav"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    fund_code = Column(String(6), nullable=False, index=True)
+    fund_code = Column(String(6), ForeignKey("funds.fund_code", ondelete="CASCADE"), nullable=False, index=True)
     nav_date = Column(Date, nullable=False)
     unit_nav = Column(Numeric(10, 4), nullable=False)
     accumulated_nav = Column(Numeric(10, 4), nullable=False)
@@ -71,7 +71,7 @@ class FundHolding(Base):
     __tablename__ = "fund_holdings"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    fund_code = Column(String(6), nullable=False, index=True)
+    fund_code = Column(String(6), ForeignKey("funds.fund_code", ondelete="CASCADE"), nullable=False, index=True)
     report_date = Column(Date, nullable=False)
     stock_code = Column(String(10), nullable=True)
     stock_name = Column(String(100), nullable=True)
@@ -93,7 +93,7 @@ class FundFee(Base):
     __tablename__ = "fund_fees"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    fund_code = Column(String(6), nullable=False, index=True)
+    fund_code = Column(String(6), ForeignKey("funds.fund_code", ondelete="CASCADE"), nullable=False, index=True)
     fee_type = Column(String(20), nullable=False)
     min_holding_days = Column(Integer, nullable=True)
     max_holding_days = Column(Integer, nullable=True)

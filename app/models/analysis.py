@@ -15,8 +15,8 @@ class AnalysisSession(Base):
     __tablename__ = "analysis_sessions"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    fund_code = Column(String(6), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    fund_code = Column(String(6), ForeignKey("funds.fund_code"), nullable=False, index=True)
     user_preference = Column(String(20), nullable=False, default="neutral")
     status = Column(String(20), nullable=False, default="pending")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -37,7 +37,7 @@ class AgentOutput(Base):
     __tablename__ = "agent_outputs"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("analysis_sessions.id"), nullable=False, index=True)
     agent_type = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False)
     score = Column(Numeric(3, 1), nullable=True)
@@ -62,7 +62,7 @@ class DecisionReport(Base):
     __tablename__ = "decision_reports"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("analysis_sessions.id"), nullable=False, unique=True)
     short_term_decision = Column(JSONB, nullable=False)
     long_term_decision = Column(JSONB, nullable=False)
     cost_matrix = Column(JSONB, nullable=False)
