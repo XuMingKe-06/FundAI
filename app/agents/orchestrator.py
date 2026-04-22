@@ -5,7 +5,7 @@
 import asyncio
 import logging
 from typing import Dict, Any, List, Callable, Optional, AsyncGenerator
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 import json
@@ -26,6 +26,7 @@ class EventType(Enum):
     """SSE 事件类型枚举"""
     AGENT_STATUS = "agent_status"
     THINKING = "thinking"
+    TOOL_CALL = "tool_call"
     AGENT_COMPLETE = "agent_complete"
     ANALYSIS_COMPLETE = "analysis_complete"
     ERROR = "error"
@@ -36,7 +37,7 @@ class SSEEvent:
     """SSE 事件数据结构"""
     event_type: EventType
     data: Dict[str, Any]
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat() + "Z")
     
     def to_sse_message(self) -> str:
         """转换为 SSE 消息格式"""
@@ -73,7 +74,7 @@ class EventCallback:
                 "agent_type": agent_type,
                 "agent_name": agent_name or agent_type,
                 "status": status,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             }
         )
         await self._queue.put(event)
@@ -97,11 +98,44 @@ class EventCallback:
             data={
                 "agent_type": agent_type,
                 "content": content,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             }
         )
         await self._queue.put(event)
         self._events.append(event)
+    
+    async def emit_tool_call(
+        self,
+        agent_type: str,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result: Optional[Dict[str, Any]] = None,
+        status: str = "pending"
+    ) -> None:
+        """
+        发送工具调用事件
+        
+        Args:
+            agent_type: 智能体类型
+            tool_name: 工具名称
+            tool_args: 工具参数
+            result: 执行结果
+            status: 调用状态（pending/success/failed）
+        """
+        event = SSEEvent(
+            event_type=EventType.TOOL_CALL,
+            data={
+                "agent_type": agent_type,
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+                "result": result,
+                "status": status,
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+            }
+        )
+        await self._queue.put(event)
+        self._events.append(event)
+        logger.debug(f"工具调用事件: {agent_type} -> {tool_name} ({status})")
     
     async def emit_agent_complete(
         self, 
@@ -127,7 +161,7 @@ class EventCallback:
                 "score": score,
                 "summary": summary,
                 "details": details,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             }
         )
         await self._queue.put(event)
@@ -151,7 +185,7 @@ class EventCallback:
             data={
                 "session_id": session_id,
                 "status": "completed",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
                 "result_summary": final_result
             }
         )
@@ -179,7 +213,7 @@ class EventCallback:
                 "error_type": error_type,
                 "message": message,
                 "agent_type": agent_type,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             }
         )
         await self._queue.put(event)
@@ -220,6 +254,11 @@ class AgentOrchestrator:
         self.analysis_agents: List[BaseAgent] = []
         self.decision_agent: Optional[DecisionAgent] = None
         self.agent_results: Dict[str, Any] = {}
+        self.fundamental_agent: Optional[BaseAgent] = None
+        self.technical_agent: Optional[BaseAgent] = None
+        self.risk_agent: Optional[BaseAgent] = None
+        self.cost_agent: Optional[BaseAgent] = None
+        self.sentiment_agent: Optional[BaseAgent] = None
         self._initialize_agents()
     
     def _initialize_agents(self) -> None:
@@ -227,6 +266,16 @@ class AgentOrchestrator:
         for agent_type, agent_name, agent_class in self.ANALYSIS_AGENTS_CONFIG:
             agent = agent_class()
             self.analysis_agents.append(agent)
+            if agent_type == "fundamental":
+                self.fundamental_agent = agent
+            elif agent_type == "technical":
+                self.technical_agent = agent
+            elif agent_type == "risk":
+                self.risk_agent = agent
+            elif agent_type == "cost":
+                self.cost_agent = agent
+            elif agent_type == "sentiment":
+                self.sentiment_agent = agent
         
         self.decision_agent = DecisionAgent()
         logger.info(f"智能体初始化完成: {len(self.analysis_agents)} 个分析智能体, 1 个决策智能体")
@@ -255,7 +304,7 @@ class AgentOrchestrator:
         """
         context: Dict[str, Any] = {
             "fund_code": fund_code,
-            "build_time": datetime.utcnow().isoformat(),
+            "build_time": datetime.now(timezone.utc).isoformat(),
             "data_source": {}
         }
         
@@ -361,13 +410,27 @@ class AgentOrchestrator:
         
         await event_callback.emit_agent_status(agent_type, "running", agent_name)
         
-        original_add_thinking = agent.add_thinking
-        
-        async def thinking_wrapper(content: str):
-            original_add_thinking(content)
+        async def thinking_callback(content: str) -> None:
             await event_callback.emit_thinking(agent_type, content)
         
-        agent.add_thinking = thinking_wrapper
+        async def tool_call_callback(
+            tool_name: str,
+            tool_args: Dict[str, Any],
+            result: Optional[Dict[str, Any]] = None,
+            status: str = "pending"
+        ) -> None:
+            await event_callback.emit_tool_call(
+                agent_type=agent_type,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                result=result,
+                status=status
+            )
+        
+        agent.set_thinking_callback(thinking_callback)
+        
+        if hasattr(agent, 'set_tool_call_callback'):
+            agent.set_tool_call_callback(tool_call_callback)
         
         try:
             result = await asyncio.wait_for(
@@ -431,7 +494,9 @@ class AgentOrchestrator:
             }
             
         finally:
-            agent.add_thinking = original_add_thinking
+            agent.set_thinking_callback(None)
+            if hasattr(agent, 'set_tool_call_callback'):
+                agent.set_tool_call_callback(None)
     
     async def run_analysis(
         self,
@@ -525,7 +590,7 @@ class AgentOrchestrator:
                         for k, v in self.agent_results.items()
                     },
                     "decision": decision_result.get("details", {}),
-                    "completed_at": datetime.utcnow().isoformat()
+                    "completed_at": datetime.now(timezone.utc).isoformat()
                 }
                 
                 await event_callback.emit_analysis_complete(session_id, final_result)
@@ -682,7 +747,7 @@ class AgentOrchestrator:
         return {
             "analysis_agents": self.agent_results,
             "decision_agent": decision_result,
-            "completed_at": datetime.utcnow().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         }
     
     def get_agent_thinking_process(self, agent_type: str) -> List[Dict[str, str]]:
