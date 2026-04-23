@@ -5,7 +5,7 @@
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Callable, Awaitable
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import logging
 import asyncio
@@ -86,7 +86,7 @@ class BaseAgent(ABC):
             content: 思考内容
         """
         self.thinking_process.append({
-            "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "time": datetime.utcnow().strftime("%H:%M:%S"),
             "text": content
         })
         
@@ -109,7 +109,7 @@ class BaseAgent(ABC):
             "name": tool_name,
             "args": args,
             "result": result_dict,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.utcnow().isoformat()
         })
         
         if self._tool_call_callback:
@@ -282,7 +282,7 @@ class BaseAgent(ABC):
                     result = await self.execute_tool(tool_name, tool_args)
                     
                     # 工具响应必须有 content
-                    tool_content = json.dumps(result.to_dict(), ensure_ascii=False)
+                    tool_content = json.dumps(result.to_dict(), ensure_ascii=False, default=str)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -402,7 +402,7 @@ class BaseAgent(ABC):
         Returns:
             默认上下文提示词
         """
-        context_str = json.dumps(context, ensure_ascii=False, indent=2)
+        context_str = json.dumps(context, ensure_ascii=False, indent=2, default=str)
         
         prompt = f"""请分析以下基金数据：
 
@@ -532,19 +532,19 @@ class BaseAgent(ABC):
         Returns:
             分析结果字典
         """
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.utcnow()
         self.status = "running"
-        
+
         try:
             result = await self.analyze(fund_code, context)
             self.status = "completed"
-            self.completed_at = datetime.now(timezone.utc)
+            self.completed_at = datetime.utcnow()
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             return result
         except Exception as e:
             self.status = "failed"
             self.error_message = str(e)
-            self.completed_at = datetime.now(timezone.utc)
+            self.completed_at = datetime.utcnow()
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             raise
     

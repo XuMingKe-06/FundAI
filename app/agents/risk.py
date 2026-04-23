@@ -550,4 +550,18 @@ class RiskAgent(BaseAgent):
             use_tools=True
         )
         
+        # 确保 risk_alerts 存入 self.details，供报告生成使用
+        if self.details and "risk_alerts" not in self.details:
+            self.details["risk_alerts"] = risk_alerts
+        elif not self.details:
+            self.details = {"risk_alerts": risk_alerts}
+        
+        # 兜底逻辑：若 LLM 未返回 summary，根据风险指标生成默认摘要
+        if not self.summary:
+            volatility = risk_metrics.get("annual_volatility", 0)
+            max_dd = risk_metrics.get("max_drawdown", 0)
+            sharpe = risk_metrics.get("sharpe_ratio", 0)
+            risk_level = "高" if volatility > 25 or max_dd > 20 else ("中" if volatility > 15 else "低")
+            self.summary = f"风险等级{risk_level}，年化波动率{volatility}%，最大回撤{max_dd}%，夏普比率{sharpe}"
+        
         return self.to_dict()

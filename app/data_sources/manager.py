@@ -402,6 +402,67 @@ class DataSourceManager:
         
         return result
     
+    async def get_news_sentiment(self, fund_code: str, days: int = 30) -> Optional[Dict[str, Any]]:
+        """
+        获取新闻舆情数据
+        
+        当前数据源暂不支持此功能，返回None由工具层提供占位数据
+        
+        Args:
+            fund_code: 基金代码
+            days: 获取最近N天的新闻
+            
+        Returns:
+            新闻舆情数据字典
+        """
+        logger.info(f"获取基金 {fund_code} 新闻舆情数据（当前数据源暂不支持）")
+        return None
+    
+    async def get_fund_flow(self, fund_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取资金流向数据
+        
+        当前数据源暂不支持此功能，返回None由工具层提供占位数据
+        
+        Args:
+            fund_code: 基金代码
+            
+        Returns:
+            资金流向数据字典
+        """
+        logger.info(f"获取基金 {fund_code} 资金流向数据（当前数据源暂不支持）")
+        return None
+    
+    async def get_social_heat(self, fund_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取社交媒体热度数据
+        
+        当前数据源暂不支持此功能，返回None由工具层提供占位数据
+        
+        Args:
+            fund_code: 基金代码
+            
+        Returns:
+            社交媒体热度数据字典
+        """
+        logger.info(f"获取基金 {fund_code} 社交媒体热度数据（当前数据源暂不支持）")
+        return None
+    
+    async def get_institutional_views(self, fund_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取机构观点数据
+        
+        当前数据源暂不支持此功能，返回None由工具层提供占位数据
+        
+        Args:
+            fund_code: 基金代码
+            
+        Returns:
+            机构观点数据字典
+        """
+        logger.info(f"获取基金 {fund_code} 机构观点数据（当前数据源暂不支持）")
+        return None
+
     async def check_health(self) -> Dict[str, Any]:
         """
         检查所有数据源健康状态

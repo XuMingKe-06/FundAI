@@ -161,3 +161,53 @@ async def get_current_user_optional(
         return None
     
     return user
+
+
+async def get_current_user_from_query_or_header(
+    request: Request,
+    session: AsyncSession = Depends(get_async_session)
+) -> User:
+    """从 query parameter 或 header 获取当前用户（用于 SSE 等不支持自定义 header 的场景）"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="无法验证凭据",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    # 优先从 query parameter 获取 token
+    token = request.query_params.get("token")
+    
+    # 如果 query parameter 没有，尝试从 header 获取
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    
+    if not token:
+        raise credentials_exception
+    
+    payload = decode_token(token)
+    
+    if payload is None:
+        raise credentials_exception
+    
+    user_id: str = payload.get("sub")
+    token_type: str = payload.get("type")
+    
+    if user_id is None or token_type != "access":
+        raise credentials_exception
+    
+    # 查询用户
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if user is None:
+        raise credentials_exception
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="用户已被禁用"
+        )
+    
+    return user

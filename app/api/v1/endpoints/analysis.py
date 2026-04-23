@@ -4,9 +4,9 @@
 import json
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 
 from app.core.database import get_async_session
 from app.core.redis_client import get_redis, CacheKeys, CacheExpire
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_from_query_or_header
 from app.models.user import User
 from app.models.fund import Fund
 from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
@@ -113,9 +113,10 @@ async def create_analysis_session(
 @router.get("/sessions/{session_id}/stream")
 async def stream_analysis(
     session_id: str,
+    request: Request,
     analysis_session: AsyncSession = Depends(get_async_session),
     redis: Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_from_query_or_header)
 ):
     """启动分析并通过SSE流式输出（需要登录）"""
     # 查询会话
@@ -222,19 +223,42 @@ async def stream_analysis(
             ):
                 yield event
             
-            # 保存智能体输出到数据库
-            await save_agent_outputs(
-                analysis_session, 
-                session_id, 
-                orchestrator
-            )
+            # 保存智能体输出到数据库（允许失败，不影响报告生成）
+            try:
+                await save_agent_outputs(
+                    analysis_session, 
+                    session_id, 
+                    orchestrator
+                )
+            except Exception as e:
+                logger.error(f"保存智能体输出失败，继续生成报告: {e}")
+                await analysis_session.rollback()
             
             # 保存决策报告到数据库
-            await save_decision_report(
-                analysis_session,
-                session_id,
-                orchestrator
-            )
+            report_saved = False
+            try:
+                await save_decision_report(
+                    analysis_session,
+                    session_id,
+                    orchestrator
+                )
+                report_saved = True
+            except Exception as e:
+                logger.error(f"保存决策报告失败: {e}")
+                await analysis_session.rollback()
+            
+            # 如果正常报告保存失败，尝试保存降级报告
+            if not report_saved:
+                try:
+                    await save_fallback_report(
+                        analysis_session,
+                        session_id,
+                        orchestrator,
+                        "部分数据获取失败，报告基于有限数据生成"
+                    )
+                except Exception as e:
+                    logger.error(f"保存降级报告也失败: {e}")
+                    await analysis_session.rollback()
             
             # 更新会话状态
             analysis_session_obj.status = "completed"
@@ -295,6 +319,9 @@ async def run_analysis_with_streaming(
             # 运行智能体
             result = await agent.run(fund_code, context)
             
+            # 将结果存入 orchestrator.agent_results，供决策智能体使用
+            orchestrator.agent_results[agent_type] = result
+            
             # 发送思考过程
             for step in agent.thinking_process:
                 if isinstance(step, dict):
@@ -309,10 +336,16 @@ async def run_analysis_with_streaming(
                 yield event
             
             # 发送结果事件
-            yield f"event: result\ndata: {json.dumps({'agent_type': agent_type, 'result': result}, ensure_ascii=False)}\n\n"
+            yield f"event: result\ndata: {json.dumps({'agent_type': agent_type, 'result': result}, ensure_ascii=False, default=str)}\n\n"
             
         except Exception as e:
             logger.error(f"智能体 {agent_type} 执行失败: {e}")
+            # 即使失败也记录到 agent_results
+            orchestrator.agent_results[agent_type] = {
+                "agent_type": agent_type,
+                "status": "failed",
+                "error": str(e)
+            }
             async for event in progress_callback(agent_type, "failed", None, str(e)):
                 yield event
             # 发送错误结果事件
@@ -375,6 +408,11 @@ async def save_agent_outputs(
     try:
         # 保存分析智能体输出
         for agent in orchestrator.analysis_agents:
+            # 序列化 tools_called，确保 date 对象被转换
+            tools_called_data = None
+            if agent.tools_called:
+                tools_called_data = json.loads(json.dumps(agent.tools_called, ensure_ascii=False, default=str))
+
             agent_output = AgentOutput(
                 session_id=session_id,
                 agent_type=agent.agent_type,
@@ -382,8 +420,8 @@ async def save_agent_outputs(
                 score=agent.score,
                 summary=agent.summary,
                 details=agent.details,
-                thinking_process=json.dumps(agent.thinking_process, ensure_ascii=False) if agent.thinking_process else None,
-                tools_called=agent.tools_called if agent.tools_called else None,
+                thinking_process=json.dumps(agent.thinking_process, ensure_ascii=False, default=str) if agent.thinking_process else None,
+                tools_called=tools_called_data,
                 error_message=agent.error_message,
                 started_at=agent.started_at or datetime.utcnow(),
                 completed_at=agent.completed_at,
@@ -393,6 +431,11 @@ async def save_agent_outputs(
         
         # 保存决策智能体输出
         decision_agent = orchestrator.decision_agent
+        # 序列化 tools_called，确保 date 对象被转换
+        decision_tools_called_data = None
+        if decision_agent.tools_called:
+            decision_tools_called_data = json.loads(json.dumps(decision_agent.tools_called, ensure_ascii=False, default=str))
+
         decision_output = AgentOutput(
             session_id=session_id,
             agent_type=decision_agent.agent_type,
@@ -400,8 +443,8 @@ async def save_agent_outputs(
             score=decision_agent.score,
             summary=decision_agent.summary,
             details=decision_agent.details,
-            thinking_process=json.dumps(decision_agent.thinking_process, ensure_ascii=False) if decision_agent.thinking_process else None,
-            tools_called=decision_agent.tools_called if decision_agent.tools_called else None,
+            thinking_process=json.dumps(decision_agent.thinking_process, ensure_ascii=False, default=str) if decision_agent.thinking_process else None,
+            tools_called=decision_tools_called_data,
             error_message=decision_agent.error_message,
             started_at=decision_agent.started_at or datetime.utcnow(),
             completed_at=decision_agent.completed_at,
@@ -428,11 +471,19 @@ async def save_decision_report(
         decision_agent = orchestrator.decision_agent
         details = decision_agent.details or {}
         
-        # 从决策智能体详情中提取数据
+        # 从决策智能体详情中提取决策数据
         short_term_decision = details.get("short_term_decision", {})
         long_term_decision = details.get("long_term_decision", {})
-        agent_scores = details.get("agent_scores", {})
-        trend_data = details.get("trend_data", {})
+        
+        # 从各分析智能体直接提取评分（而非依赖决策智能体 details 中的 agent_scores）
+        agent_scores = {}
+        for agent in orchestrator.analysis_agents:
+            if agent.score is not None:
+                agent_scores[agent.agent_type] = float(agent.score)
+        # 补全缺失的评分字段
+        default_scores = {"fundamental": 0.0, "technical": 0.0, "risk": 0.0, "cost": 0.0, "sentiment": 0.0}
+        default_scores.update(agent_scores)
+        agent_scores = default_scores
         
         # 从成本智能体获取成本矩阵
         cost_agent = None
@@ -445,12 +496,17 @@ async def save_decision_report(
         if cost_agent and cost_agent.details:
             cost_matrix_raw = cost_agent.details.get("cost_matrix", [])
             for item in cost_matrix_raw:
+                # 成本智能体 _build_cost_matrix 使用 holding_period 和 holding_days 字段
+                holding_period = item.get("holding_period", "") or item.get("label", "")
+                purchase_fee = item.get("purchase_fee", 0)
+                redemption_fee = item.get("redemption_fee", 0)
+                total_fee = item.get("total_fee", 0)
                 cost_matrix.append({
-                    "holding_period": item.get("label", ""),
-                    "purchase_fee": f"{item.get('purchase_fee', 0) * 100:.2f}%",
-                    "redemption_fee": f"{item.get('redemption_fee', 0) * 100:.2f}%",
-                    "total_fee": f"{item.get('total_fee', 0) * 100:.2f}%",
-                    "breakeven": f"约{item.get('total_fee', 0) * 100:.2f}%"
+                    "holding_period": holding_period,
+                    "purchase_fee": f"{purchase_fee * 100:.2f}%" if isinstance(purchase_fee, (int, float)) else str(purchase_fee),
+                    "redemption_fee": f"{redemption_fee * 100:.2f}%" if isinstance(redemption_fee, (int, float)) else str(redemption_fee),
+                    "total_fee": f"{total_fee * 100:.2f}%" if isinstance(total_fee, (int, float)) else str(total_fee),
+                    "breakeven": f"约{total_fee * 100:.2f}%" if isinstance(total_fee, (int, float)) else str(item.get("breakeven", ""))
                 })
         
         # 从风险智能体获取风险提示
@@ -462,35 +518,84 @@ async def save_decision_report(
         
         risk_alerts = []
         if risk_agent and risk_agent.details:
-            risk_alerts = risk_agent.details.get("risk_alerts", [
+            risk_alerts = risk_agent.details.get("risk_alerts", [])
+        # 如果风险智能体 details 中没有 risk_alerts，生成默认提示
+        if not risk_alerts:
+            risk_alerts = [
                 "持仓数据可能存在滞后",
                 "市场波动风险需关注",
                 "投资需谨慎"
-            ])
+            ]
         
-        # 构建趋势图数据
+        # 从技术智能体和编排器上下文构建趋势图数据
         trend_chart = None
-        if trend_data:
-            historical = trend_data.get("historical", [])
-            predicted = trend_data.get("predicted", [])
+        technical_agent = None
+        for agent in orchestrator.analysis_agents:
+            if agent.agent_type == "technical":
+                technical_agent = agent
+                break
+        
+        # 尝试从技术智能体的工具调用结果中获取净值历史
+        historical_data = []
+        if technical_agent and technical_agent.tools_called:
+            for tool_call in technical_agent.tools_called:
+                if tool_call.get("name") == "get_nav_history" and tool_call.get("result", {}).get("success"):
+                    nav_data = tool_call["result"].get("data", {})
+                    nav_list = nav_data.get("nav_history", []) if isinstance(nav_data, dict) else []
+                    if not nav_list and isinstance(nav_data, list):
+                        nav_list = nav_data
+                    for item in nav_list:
+                        date_val = item.get("date", "") or item.get("trade_date", "")
+                        nav_val = item.get("nav", 0) or item.get("unit_nav", 0)
+                        if date_val and nav_val:
+                            historical_data.append({
+                                "date": str(date_val),
+                                "value": float(nav_val)
+                            })
+                    break
+        
+        # 如果技术智能体没有净值数据，尝试从编排器上下文获取
+        if not historical_data and hasattr(orchestrator, '_last_context'):
+            nav_history = orchestrator._last_context.get("nav_history", [])
+            for item in nav_history:
+                date_val = item.get("date", "") or item.get("trade_date", "")
+                nav_val = item.get("nav", 0) or item.get("unit_nav", 0)
+                if date_val and nav_val:
+                    historical_data.append({
+                        "date": str(date_val),
+                        "value": float(nav_val)
+                    })
+        
+        if historical_data:
+            # 基于历史数据生成简单预测（最近5个数据点的趋势延伸）
+            prediction_data = []
+            if len(historical_data) >= 5:
+                last_5 = historical_data[-5:]
+                avg_change = 0
+                for i in range(1, len(last_5)):
+                    avg_change += last_5[i]["value"] - last_5[i-1]["value"]
+                avg_change /= (len(last_5) - 1)
+                
+                last_val = historical_data[-1]["value"]
+                last_date_str = historical_data[-1]["date"]
+                try:
+                    base_date = datetime.strptime(last_date_str[:10], "%Y-%m-%d")
+                except (ValueError, IndexError):
+                    base_date = datetime.utcnow()
+                
+                for i in range(1, 6):
+                    pred_date = (base_date + timedelta(days=i * 7)).strftime("%Y-%m-%d")
+                    pred_val = last_val + avg_change * i
+                    prediction_data.append({
+                        "date": pred_date,
+                        "value": round(pred_val, 4),
+                        "upper_bound": round(pred_val * 1.02, 4),
+                        "lower_bound": round(pred_val * 0.98, 4)
+                    })
             
             trend_chart = {
-                "historical_data": [
-                    {
-                        "date": item.get("date", ""),
-                        "value": item.get("nav", 0)
-                    }
-                    for item in historical
-                ],
-                "prediction_data": [
-                    {
-                        "date": item.get("date", ""),
-                        "value": item.get("nav", 0),
-                        "upper_bound": item.get("upper_bound"),
-                        "lower_bound": item.get("lower_bound")
-                    }
-                    for item in predicted
-                ],
+                "historical_data": historical_data,
+                "prediction_data": prediction_data,
                 "chart_config": {
                     "historical_color": "#3B82F6",
                     "prediction_color": "#F97316",
@@ -519,6 +624,94 @@ async def save_decision_report(
         logger.error(f"保存决策报告失败: {e}")
         await db_session.rollback()
         raise
+
+
+async def save_fallback_report(
+    db_session: AsyncSession,
+    session_id: str,
+    orchestrator: AgentOrchestrator,
+    error_msg: str = ""
+):
+    """保存降级报告（当正常报告生成失败时）"""
+    decision_agent = orchestrator.decision_agent
+    details = decision_agent.details if decision_agent else {}
+
+    # 从各智能体获取可用评分数据
+    agent_scores = {}
+    for agent in orchestrator.analysis_agents:
+        if agent.score is not None:
+            agent_scores[agent.agent_type] = float(agent.score)
+
+    # 补全缺失的评分字段
+    default_scores = {"fundamental": 0.0, "technical": 0.0, "risk": 0.0, "cost": 0.0, "sentiment": 0.0}
+    default_scores.update(agent_scores)
+
+    # 从决策智能体获取可用的决策数据
+    short_term = details.get("short_term_decision", {})
+    long_term = details.get("long_term_decision", {})
+
+    # 构建降级短线决策
+    fallback_short_term = {
+        "direction": short_term.get("direction", "hold"),
+        "holding_period": short_term.get("holding_period", "无法判断"),
+        "confidence": short_term.get("confidence", 0.0),
+        "reasons": short_term.get("reasons", ["数据获取不完整，无法进行有效分析"]),
+        "stop_profit": short_term.get("stop_profit", "无法判断"),
+        "stop_loss": short_term.get("stop_loss", "无法判断")
+    }
+
+    # 构建降级长线决策
+    fallback_long_term = {
+        "direction": long_term.get("direction", "hold"),
+        "confidence": long_term.get("confidence", 0.0),
+        "reasons": long_term.get("reasons", ["数据获取不完整，无法进行有效分析"]),
+        "dip_investment_suggestion": long_term.get("dip_investment_suggestion", "建议等待数据完整后再做决策")
+    }
+
+    # 从成本智能体获取成本矩阵
+    cost_matrix = []
+    for agent in orchestrator.analysis_agents:
+        if agent.agent_type == "cost" and agent.details:
+            cost_matrix_raw = agent.details.get("cost_matrix", [])
+            for item in cost_matrix_raw:
+                holding_period = item.get("holding_period", "") or item.get("label", "")
+                purchase_fee = item.get("purchase_fee", 0)
+                redemption_fee = item.get("redemption_fee", 0)
+                total_fee = item.get("total_fee", 0)
+                cost_matrix.append({
+                    "holding_period": holding_period,
+                    "purchase_fee": f"{purchase_fee * 100:.2f}%" if isinstance(purchase_fee, (int, float)) else str(purchase_fee),
+                    "redemption_fee": f"{redemption_fee * 100:.2f}%" if isinstance(redemption_fee, (int, float)) else str(redemption_fee),
+                    "total_fee": f"{total_fee * 100:.2f}%" if isinstance(total_fee, (int, float)) else str(total_fee),
+                    "breakeven": f"约{total_fee * 100:.2f}%" if isinstance(total_fee, (int, float)) else str(item.get("breakeven", ""))
+                })
+            break
+
+    # 从风险智能体获取风险提示
+    risk_alerts = ["分析过程中部分数据获取失败，结果仅供参考", "投资需谨慎"]
+    for agent in orchestrator.analysis_agents:
+        if agent.agent_type == "risk" and agent.details:
+            risk_alerts = agent.details.get("risk_alerts", risk_alerts)
+            break
+
+    disclaimer_text = "本报告由AI智能体自动生成，基于公开数据及算法分析，不构成任何投资建议。市场有风险，投资需谨慎。"
+    if error_msg:
+        disclaimer_text = f"本报告由AI智能体自动生成。分析过程中出现错误：{error_msg}。基于有限数据生成，不构成任何投资建议。市场有风险，投资需谨慎。"
+
+    report = DecisionReport(
+        session_id=session_id,
+        short_term_decision=fallback_short_term,
+        long_term_decision=fallback_long_term,
+        cost_matrix=cost_matrix,
+        risk_alerts=risk_alerts,
+        agent_scores=default_scores,
+        trend_chart=None,
+        disclaimer=disclaimer_text
+    )
+
+    db_session.add(report)
+    await db_session.commit()
+    logger.info(f"会话 {session_id} 的降级决策报告已保存")
 
 
 @router.get("/sessions/{session_id}/report", response_model=ApiResponse[AnalysisReport])

@@ -205,7 +205,7 @@ class AkshareAdapter(BaseDataSource):
         
         try:
             # 使用 fund_open_fund_info_em 获取历史净值
-            nav_df = ak.fund_open_fund_info_em(fund=fund_code, indicator="单位净值走势")
+            nav_df = ak.fund_open_fund_info_em(symbol=fund_code, indicator="单位净值走势")
             
             if nav_df.empty:
                 logger.warning(f"未找到基金 {fund_code} 的净值数据")
@@ -238,7 +238,7 @@ class AkshareAdapter(BaseDataSource):
             
             # 尝试获取累计净值
             try:
-                acc_nav_df = ak.fund_open_fund_info_em(fund=fund_code, indicator="累计净值走势")
+                acc_nav_df = ak.fund_open_fund_info_em(symbol=fund_code, indicator="累计净值走势")
                 if not acc_nav_df.empty:
                     acc_nav_df.columns = ["净值日期", "累计净值"]
                     

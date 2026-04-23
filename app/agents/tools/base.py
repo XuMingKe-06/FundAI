@@ -6,6 +6,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Type, Callable
+from datetime import date, datetime
 from enum import Enum
 import logging
 import json
@@ -33,13 +34,24 @@ class ToolResult:
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     
+    @staticmethod
+    def _serialize_value(obj: Any) -> Any:
+        """递归序列化值，将 date/datetime 对象转换为 ISO 格式字符串"""
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        if isinstance(obj, dict):
+            return {k: ToolResult._serialize_value(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [ToolResult._serialize_value(item) for item in obj]
+        return obj
+
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典格式"""
+        """转换为字典格式，自动将 date/datetime 对象转换为字符串"""
         return {
             "success": self.success,
-            "data": self.data,
+            "data": self._serialize_value(self.data),
             "error": self.error,
-            "metadata": self.metadata
+            "metadata": self._serialize_value(self.metadata)
         }
     
     @classmethod

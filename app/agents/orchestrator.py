@@ -41,7 +41,7 @@ class SSEEvent:
     
     def to_sse_message(self) -> str:
         """转换为 SSE 消息格式"""
-        return f"event: {self.event_type.value}\ndata: {json.dumps(self.data, ensure_ascii=False)}\n\n"
+        return f"event: {self.event_type.value}\ndata: {json.dumps(self.data, ensure_ascii=False, default=str)}\n\n"
 
 
 class EventCallback:
