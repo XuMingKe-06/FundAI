@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 
 from app.core.database import get_async_session
 from app.core.redis_client import get_redis, CacheKeys, CacheExpire
-from app.core.security import get_current_user, get_current_user_optional
+from app.core.security import get_current_user
 from app.models.user import User
 from app.models.fund import Fund
 from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
@@ -45,9 +45,9 @@ router = APIRouter(prefix="/analysis", tags=["分析"])
 async def create_analysis_session(
     request: CreateSessionRequest,
     session: AsyncSession = Depends(get_async_session),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
-    """创建分析会话（支持可选认证）"""
+    """创建分析会话（需要登录）"""
     # 查询基金信息
     result = await session.execute(
         select(Fund).where(Fund.fund_code == request.fund_code)
@@ -84,9 +84,9 @@ async def create_analysis_session(
                 detail=f"基金 {request.fund_code} 不存在，请检查基金代码是否正确"
             )
     
-    # 创建分析会话（支持匿名用户）
+    # 创建分析会话
     new_session = AnalysisSession(
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
         fund_code=request.fund_code,
         user_preference=request.user_preference,
         status="pending"
@@ -115,9 +115,9 @@ async def stream_analysis(
     session_id: str,
     analysis_session: AsyncSession = Depends(get_async_session),
     redis: Redis = Depends(get_redis),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
-    """启动分析并通过SSE流式输出（支持可选认证）"""
+    """启动分析并通过SSE流式输出（需要登录）"""
     # 查询会话
     result = await analysis_session.execute(
         select(AnalysisSession).where(AnalysisSession.id == session_id)
@@ -130,13 +130,12 @@ async def stream_analysis(
             detail="会话不存在"
         )
     
-    # 验证权限（已登录用户验证所有权，匿名会话允许访问）
-    if current_user and analysis_session_obj.user_id:
-        if str(analysis_session_obj.user_id) != str(current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="无权访问此会话"
-            )
+    # 验证权限（只允许会话所有者访问）
+    if str(analysis_session_obj.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此会话"
+        )
     
     # 查询基金信息
     fund_result = await analysis_session.execute(
@@ -526,9 +525,9 @@ async def save_decision_report(
 async def get_analysis_report(
     session_id: str,
     session: AsyncSession = Depends(get_async_session),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
-    """获取分析报告（支持可选认证）"""
+    """获取分析报告（需要登录）"""
     # 查询会话
     result = await session.execute(
         select(AnalysisSession).where(AnalysisSession.id == session_id)
@@ -541,13 +540,12 @@ async def get_analysis_report(
             detail="会话不存在"
         )
     
-    # 验证权限（已登录用户验证所有权，匿名会话允许访问）
-    if current_user and analysis_session.user_id:
-        if str(analysis_session.user_id) != str(current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="无权访问此会话"
-            )
+    # 验证权限（只允许会话所有者访问）
+    if str(analysis_session.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此会话"
+        )
     
     # 查询基金信息
     fund_result = await session.execute(
