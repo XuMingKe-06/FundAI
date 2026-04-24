@@ -14,6 +14,7 @@ from app.services.rag_service import get_rag_service
 from app.services.llm_service import get_llm_service
 from app.agents.tools.base import ToolRegistry, ToolResult
 from app.agents.prompts import get_prompt_template
+from openai import PermissionDeniedError, RateLimitError, APIError
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,49 @@ class BaseAgent(ABC):
             callback: 异步回调函数，接收工具名称、参数、结果和状态
         """
         self._tool_call_callback = callback
+    
+    def _handle_llm_error(self, error: Exception) -> str:
+        """
+        处理 LLM API 调用错误，将技术错误转换为用户友好提示
+        
+        Args:
+            error: 原始异常对象
+            
+        Returns:
+            用户友好的错误提示信息
+        """
+        error_str = str(error)
+        
+        # 403 配额耗尽错误
+        if isinstance(error, PermissionDeniedError):
+            if "AllocationQuota" in error_str or "free tier" in error_str.lower():
+                logger.error(f"智能体 {self.name} LLM 配额已耗尽")
+                return "LLM 服务配额已耗尽，请联系管理员或更换 API Key"
+            logger.error(f"智能体 {self.name} LLM 权限被拒绝: {error_str[:200]}")
+            return "LLM 服务权限不足，请联系管理员"
+        
+        # 429 限流错误
+        if isinstance(error, RateLimitError):
+            logger.error(f"智能体 {self.name} LLM 请求被限流")
+            return "LLM 服务请求过于频繁，请稍后重试"
+        
+        # 其他 API 错误
+        if isinstance(error, APIError):
+            status_code = getattr(error, 'status_code', None)
+            if status_code == 403:
+                if "AllocationQuota" in error_str or "free tier" in error_str.lower():
+                    return "LLM 服务配额已耗尽，请联系管理员或更换 API Key"
+                return "LLM 服务权限不足，请联系管理员"
+            if status_code == 429:
+                return "LLM 服务请求过于频繁，请稍后重试"
+            if status_code and status_code >= 500:
+                return "LLM 服务暂时不可用，请稍后重试"
+            logger.error(f"智能体 {self.name} LLM API 错误: {error_str[:200]}")
+            return f"LLM 服务调用失败，请稍后重试"
+        
+        # 未知错误
+        logger.error(f"智能体 {self.name} 未知 LLM 错误: {error_str[:200]}")
+        return "分析服务暂时不可用，请稍后重试"
     
     async def add_thinking(self, content: str) -> None:
         """
@@ -197,20 +241,29 @@ class BaseAgent(ABC):
         
         await self.add_thinking("正在调用大语言模型进行分析...")
         
-        if use_tools and self.get_tools():
-            response = await self._call_llm_with_tools(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                temperature=temperature
-            )
-        else:
-            response = await self._llm_service.chat_async(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                temperature=temperature
-            )
-        
-        return response
+        try:
+            if use_tools and self.get_tools():
+                response = await self._call_llm_with_tools(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature
+                )
+            else:
+                response = await self._llm_service.chat_async(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature
+                )
+            
+            return response
+        except (PermissionDeniedError, RateLimitError, APIError) as e:
+            friendly_msg = self._handle_llm_error(e)
+            self.error_message = friendly_msg
+            raise
+        except Exception as e:
+            friendly_msg = self._handle_llm_error(e)
+            self.error_message = friendly_msg
+            raise
     
     async def _call_llm_with_tools(
         self,
@@ -250,13 +303,22 @@ class BaseAgent(ABC):
         ]
         
         for iteration in range(max_iterations):
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                tools=tools if tools else None,
-                tool_choice="auto" if tools else None
-            )
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    tools=tools if tools else None,
+                    tool_choice="auto" if tools else None
+                )
+            except (PermissionDeniedError, RateLimitError, APIError) as e:
+                friendly_msg = self._handle_llm_error(e)
+                self.error_message = friendly_msg
+                raise
+            except Exception as e:
+                friendly_msg = self._handle_llm_error(e)
+                self.error_message = friendly_msg
+                raise
             
             message = response.choices[0].message
             

@@ -37,6 +37,9 @@ class CostAgent(BaseAgent):
     
     def __init__(self):
         super().__init__("cost", "成本分析师")
+        self._computed_cost_matrix: List[Dict[str, Any]] = []
+        self._computed_fees: Dict[str, Any] = {}
+        self._computed_feasibility: Dict[str, Any] = {}
     
     async def analyze(self, fund_code: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -54,12 +57,20 @@ class CostAgent(BaseAgent):
         try:
             enhanced_context = await self._prepare_analysis_context(fund_code, context)
             
+            # 保存代码计算的精确数据，用于 LLM 输出缺失时兜底
+            self._computed_cost_matrix = enhanced_context.get("cost_matrix", [])
+            self._computed_fees = enhanced_context.get("fees", {})
+            self._computed_feasibility = enhanced_context.get("feasibility_analysis", {})
+            
             result = await self.run_llm_analysis(
                 fund_code=fund_code,
                 context=enhanced_context,
                 use_rag=True,
                 use_tools=True
             )
+            
+            # 用代码计算的精确数据补充/覆盖 LLM 可能缺失的字段
+            self._ensure_computed_data()
             
             return self.to_dict()
             
@@ -77,6 +88,37 @@ class CostAgent(BaseAgent):
                 "recommended_holding_period": None,
             }
             return self.to_dict()
+    
+    def _ensure_computed_data(self) -> None:
+        """用代码计算的精确数据补充/覆盖 LLM 输出中可能缺失的字段"""
+        if self.details is None:
+            self.details = {}
+        
+        # 确保成本矩阵使用代码计算的精确值
+        if not self.details.get("cost_matrix"):
+            self.details["cost_matrix"] = self._computed_cost_matrix
+        
+        # 确保赎回费率阶梯使用代码计算的精确值
+        if not self.details.get("redemption_fee_ladder"):
+            self.details["redemption_fee_ladder"] = self._computed_fees.get("redemption_ladder", [])
+        
+        # 确保申购费率使用代码计算的精确值
+        if self.details.get("purchase_fee_rate") is None:
+            self.details["purchase_fee_rate"] = self._computed_fees.get("purchase_fee_discounted")
+        
+        # 确保 summary 不为空
+        if not self.summary:
+            feasibility = self._computed_feasibility
+            profitable = feasibility.get("profitable_count", 0)
+            total = feasibility.get("total_count", 0)
+            if profitable == total and total > 0:
+                self.summary = f"短线投资具备成本可行性，{profitable}/{total}个方案盈利"
+            elif profitable > 0:
+                self.summary = f"短线投资部分具备成本可行性，{profitable}/{total}个方案盈利"
+            elif total > 0:
+                self.summary = f"短线投资不具备成本可行性，{profitable}/{total}个方案盈利"
+            else:
+                self.summary = "成本分析完成，数据不足无法评估短线可行性"
     
     async def _prepare_analysis_context(
         self,

@@ -1,6 +1,7 @@
 """
 会话管理API端点
 """
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -166,16 +167,24 @@ async def get_session_detail(
     agent_outputs = agent_result.scalars().all()
     
     # 构建智能体输出列表
-    agent_output_list = [
-        AgentOutputInfo(
+    agent_output_list = []
+    for ao in agent_outputs:
+        # 解析 thinking_process JSON 字符串
+        thinking_process = None
+        if ao.thinking_process:
+            try:
+                thinking_process = json.loads(ao.thinking_process) if isinstance(ao.thinking_process, str) else ao.thinking_process
+            except (json.JSONDecodeError, TypeError):
+                thinking_process = None
+        
+        agent_output_list.append(AgentOutputInfo(
             agent_type=ao.agent_type,
             status=ao.status,
             score=float(ao.score) if ao.score else None,
             summary=ao.summary,
+            thinking_process=thinking_process,
             duration_ms=ao.duration_ms
-        )
-        for ao in agent_outputs
-    ]
+        ))
     
     # 如果没有智能体输出且会话状态为完成，返回空列表而不是模拟数据
     # 前端应根据会话状态判断是否需要显示智能体输出

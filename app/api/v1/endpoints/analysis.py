@@ -138,6 +138,33 @@ async def stream_analysis(
             detail="无权访问此会话"
         )
     
+    # 如果会话已完成或失败，直接返回对应事件（处理前端重连场景）
+    if analysis_session_obj.status == "completed":
+        async def completed_event_generator():
+            yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+        return StreamingResponse(
+            completed_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    
+    if analysis_session_obj.status == "failed":
+        async def failed_event_generator():
+            yield f"event: error\ndata: {json.dumps({'error_type': 'SessionFailed', 'message': '该分析任务已失败，请重新分析', 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+        return StreamingResponse(
+            failed_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    
     # 查询基金信息
     fund_result = await analysis_session.execute(
         select(Fund).where(Fund.fund_code == analysis_session_obj.fund_code)
@@ -172,8 +199,13 @@ async def stream_analysis(
                 """智能体进度回调函数"""
                 nonlocal agent_outputs_data
                 
-                # 发送智能体状态事件
-                yield f"event: agent_status\ndata: {json.dumps({'agent_type': agent_type, 'status': agent_status, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                # 发送智能体状态事件，包含score和summary
+                status_data = {'agent_type': agent_type, 'status': agent_status, 'timestamp': datetime.utcnow().isoformat() + 'Z'}
+                if score is not None:
+                    status_data['score'] = float(score)
+                if summary is not None:
+                    status_data['summary'] = summary
+                yield f"event: agent_status\ndata: {json.dumps(status_data, ensure_ascii=False)}\n\n"
                 
                 if agent_status == "running":
                     # 获取并发送思考过程
@@ -195,11 +227,14 @@ async def stream_analysis(
                     }
                     
                     # 发送完成事件
-                    yield f"event: agent_complete\ndata: {json.dumps({'agent_type': agent_type, 'status': 'completed', 'score': float(score) if score else None, 'summary': summary, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                    yield f"event: agent_complete\ndata: {json.dumps({'agent_type': agent_type, 'status': 'completed', 'score': float(score) if score else None, 'summary': summary, 'timestamp': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
                 
                 elif agent_status == "failed":
-                    # 发送失败事件
-                    yield f"event: agent_complete\ndata: {json.dumps({'agent_type': agent_type, 'status': 'failed', 'score': None, 'summary': summary, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                    # 发送失败事件，同时发送error事件以便前端展示错误信息
+                    yield f"event: agent_complete\ndata: {json.dumps({'agent_type': agent_type, 'status': 'failed', 'score': None, 'summary': summary, 'timestamp': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
+                    # 对决策智能体的失败，额外发送error事件
+                    if agent_type == "decision":
+                        yield f"event: error\ndata: {json.dumps({'error_type': 'AgentError', 'agent_type': agent_type, 'message': summary or '决策智能体执行失败', 'timestamp': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
             
             # 构建分析上下文
             context = {
@@ -395,7 +430,11 @@ async def run_analysis_with_streaming(
         
     except Exception as e:
         logger.error(f"决策智能体执行失败: {e}")
-        async for event in progress_callback("decision", "failed", None, str(e)):
+        # 将决策智能体标记为失败状态
+        decision_agent.status = "failed"
+        decision_agent.error_message = str(e)
+        decision_agent.summary = f"决策智能体执行失败: {str(e)[:200]}"
+        async for event in progress_callback("decision", "failed", None, decision_agent.summary):
             yield event
 
 
@@ -461,6 +500,64 @@ async def save_agent_outputs(
         raise
 
 
+def _build_fallback_short_term(orchestrator: AgentOrchestrator) -> dict:
+    """从各分析智能体构建降级短线决策数据"""
+    reasons = []
+    direction = "hold"
+    
+    for agent in orchestrator.analysis_agents:
+        if agent.summary:
+            reasons.append(f"{agent.name}：{agent.summary}")
+    
+    # 根据评分趋势判断方向
+    tech_agent = next((a for a in orchestrator.analysis_agents if a.agent_type == "technical"), None)
+    if tech_agent and tech_agent.score is not None:
+        if tech_agent.score >= 4.0:
+            direction = "buy"
+        elif tech_agent.score <= 2.0:
+            direction = "sell"
+    
+    if not reasons:
+        reasons.append("决策智能体执行失败，基于各分析智能体摘要生成")
+    
+    return {
+        "direction": direction,
+        "holding_period": "7-15天",
+        "confidence": 0.3,
+        "reasons": reasons[:5],
+        "stop_profit": "建议根据个人风险偏好设置",
+        "stop_loss": "建议设置5%-8%止损线"
+    }
+
+
+def _build_fallback_long_term(orchestrator: AgentOrchestrator) -> dict:
+    """从各分析智能体构建降级长线决策数据"""
+    reasons = []
+    direction = "hold"
+    
+    for agent in orchestrator.analysis_agents:
+        if agent.summary:
+            reasons.append(f"{agent.name}：{agent.summary}")
+    
+    # 根据基本面评分判断方向
+    fund_agent = next((a for a in orchestrator.analysis_agents if a.agent_type == "fundamental"), None)
+    if fund_agent and fund_agent.score is not None:
+        if fund_agent.score >= 4.0:
+            direction = "buy"
+        elif fund_agent.score <= 2.0:
+            direction = "sell"
+    
+    if not reasons:
+        reasons.append("决策智能体执行失败，基于各分析智能体摘要生成")
+    
+    return {
+        "direction": direction,
+        "confidence": 0.3,
+        "reasons": reasons[:5],
+        "dip_investment_suggestion": "建议等待决策分析完成后再做定投决策"
+    }
+
+
 async def save_decision_report(
     db_session: AsyncSession,
     session_id: str,
@@ -474,6 +571,12 @@ async def save_decision_report(
         # 从决策智能体详情中提取决策数据
         short_term_decision = details.get("short_term_decision", {})
         long_term_decision = details.get("long_term_decision", {})
+        
+        # 如果决策智能体失败，从各分析智能体构建降级决策数据
+        if decision_agent.status == "failed" or not short_term_decision:
+            short_term_decision = _build_fallback_short_term(orchestrator)
+        if decision_agent.status == "failed" or not long_term_decision:
+            long_term_decision = _build_fallback_long_term(orchestrator)
         
         # 从各分析智能体直接提取评分（而非依赖决策智能体 details 中的 agent_scores）
         agent_scores = {}
@@ -650,23 +753,29 @@ async def save_fallback_report(
     short_term = details.get("short_term_decision", {})
     long_term = details.get("long_term_decision", {})
 
-    # 构建降级短线决策
-    fallback_short_term = {
-        "direction": short_term.get("direction", "hold"),
-        "holding_period": short_term.get("holding_period", "无法判断"),
-        "confidence": short_term.get("confidence", 0.0),
-        "reasons": short_term.get("reasons", ["数据获取不完整，无法进行有效分析"]),
-        "stop_profit": short_term.get("stop_profit", "无法判断"),
-        "stop_loss": short_term.get("stop_loss", "无法判断")
-    }
+    # 构建降级短线决策：优先使用决策智能体数据，否则从各分析智能体构建
+    if short_term and short_term.get("direction"):
+        fallback_short_term = {
+            "direction": short_term.get("direction", "hold"),
+            "holding_period": short_term.get("holding_period", "7-15天"),
+            "confidence": short_term.get("confidence", 0.3),
+            "reasons": short_term.get("reasons", ["数据获取不完整，基于有限数据生成"]),
+            "stop_profit": short_term.get("stop_profit", "建议根据个人风险偏好设置"),
+            "stop_loss": short_term.get("stop_loss", "建议设置5%-8%止损线")
+        }
+    else:
+        fallback_short_term = _build_fallback_short_term(orchestrator)
 
-    # 构建降级长线决策
-    fallback_long_term = {
-        "direction": long_term.get("direction", "hold"),
-        "confidence": long_term.get("confidence", 0.0),
-        "reasons": long_term.get("reasons", ["数据获取不完整，无法进行有效分析"]),
-        "dip_investment_suggestion": long_term.get("dip_investment_suggestion", "建议等待数据完整后再做决策")
-    }
+    # 构建降级长线决策：优先使用决策智能体数据，否则从各分析智能体构建
+    if long_term and long_term.get("direction"):
+        fallback_long_term = {
+            "direction": long_term.get("direction", "hold"),
+            "confidence": long_term.get("confidence", 0.3),
+            "reasons": long_term.get("reasons", ["数据获取不完整，基于有限数据生成"]),
+            "dip_investment_suggestion": long_term.get("dip_investment_suggestion", "建议等待数据完整后再做决策")
+        }
+    else:
+        fallback_long_term = _build_fallback_long_term(orchestrator)
 
     # 从成本智能体获取成本矩阵
     cost_matrix = []
