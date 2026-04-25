@@ -1,9 +1,9 @@
 """
 分析会话相关Schema
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CreateSessionRequest(BaseModel):
@@ -21,6 +21,14 @@ class SessionInfo(BaseModel):
     status: str = Field(..., description="会话状态")
     created_at: datetime = Field(..., description="创建时间")
     completed_at: Optional[datetime] = Field(default=None, description="完成时间")
+
+    @model_validator(mode='after')
+    def ensure_timezone_aware(self):
+        for field_name in ['created_at', 'completed_at']:
+            value = getattr(self, field_name, None)
+            if value is not None and value.tzinfo is None:
+                setattr(self, field_name, value.replace(tzinfo=timezone.utc))
+        return self
     
     class Config:
         from_attributes = True
@@ -34,6 +42,12 @@ class CreateSessionResponse(BaseModel):
     user_preference: str = Field(..., description="风险偏好")
     status: str = Field(..., description="会话状态")
     created_at: datetime = Field(..., description="创建时间")
+
+    @model_validator(mode='after')
+    def ensure_timezone_aware(self):
+        if self.created_at is not None and self.created_at.tzinfo is None:
+            self.created_at = self.created_at.replace(tzinfo=timezone.utc)
+        return self
 
 
 class AgentStatusEvent(BaseModel):
@@ -140,6 +154,14 @@ class AnalysisReport(BaseModel):
     trend_chart: Optional[TrendChart] = Field(default=None, description="走势图数据")
     disclaimer: str = Field(..., description="免责声明")
 
+    @model_validator(mode='after')
+    def ensure_timezone_aware(self):
+        for field_name in ['created_at', 'completed_at']:
+            value = getattr(self, field_name, None)
+            if value is not None and value.tzinfo is None:
+                setattr(self, field_name, value.replace(tzinfo=timezone.utc))
+        return self
+
 
 class SessionListItem(BaseModel):
     """会话列表项"""
@@ -151,6 +173,14 @@ class SessionListItem(BaseModel):
     long_term_direction: Optional[str] = Field(default=None, description="长线方向")
     created_at: datetime = Field(..., description="创建时间")
     completed_at: Optional[datetime] = Field(default=None, description="完成时间")
+
+    @model_validator(mode='after')
+    def ensure_timezone_aware(self):
+        for field_name in ['created_at', 'completed_at']:
+            value = getattr(self, field_name, None)
+            if value is not None and value.tzinfo is None:
+                setattr(self, field_name, value.replace(tzinfo=timezone.utc))
+        return self
     
     class Config:
         from_attributes = True
@@ -177,3 +207,11 @@ class SessionDetail(BaseModel):
     created_at: datetime = Field(..., description="创建时间")
     completed_at: Optional[datetime] = Field(default=None, description="完成时间")
     agent_outputs: List[AgentOutputInfo] = Field(..., description="智能体输出列表")
+
+    @model_validator(mode='after')
+    def ensure_timezone_aware(self):
+        for field_name in ['created_at', 'completed_at']:
+            value = getattr(self, field_name, None)
+            if value is not None and value.tzinfo is None:
+                setattr(self, field_name, value.replace(tzinfo=timezone.utc))
+        return self

@@ -642,30 +642,47 @@ async def save_decision_report(
         historical_data = []
         if technical_agent and technical_agent.tools_called:
             for tool_call in technical_agent.tools_called:
-                if tool_call.get("name") == "get_nav_history" and tool_call.get("result", {}).get("success"):
-                    nav_data = tool_call["result"].get("data", {})
-                    nav_list = nav_data.get("nav_history", []) if isinstance(nav_data, dict) else []
-                    if not nav_list and isinstance(nav_data, list):
-                        nav_list = nav_data
-                    for item in nav_list:
-                        date_val = item.get("date", "") or item.get("trade_date", "")
-                        nav_val = item.get("nav", 0) or item.get("unit_nav", 0)
-                        if date_val and nav_val:
-                            historical_data.append({
-                                "date": str(date_val),
-                                "value": float(nav_val)
-                            })
+                if tool_call.get("name") == "get_nav_history":
+                    result = tool_call.get("result", {})
+                    if result and result.get("success"):
+                        nav_data = result.get("data")
+                        # data 字段直接就是净值列表
+                        nav_list = nav_data if isinstance(nav_data, list) else nav_data.get("nav_history", []) if isinstance(nav_data, dict) else []
+                        for item in nav_list:
+                            date_val = item.get("date", "") or item.get("trade_date", "")
+                            nav_val = item.get("nav") or item.get("unit_nav")
+                            if date_val and nav_val is not None:
+                                historical_data.append({
+                                    "date": str(date_val)[:10],
+                                    "value": float(nav_val)
+                                })
                     break
+        
+        # 如果 tools_called 中没有净值数据，尝试从技术智能体实例属性获取
+        if not historical_data and technical_agent and hasattr(technical_agent, '_full_nav_history'):
+            nav_history = technical_agent._full_nav_history
+            if nav_history:
+                for item in nav_history:
+                    # trade_date 可能是 date 对象或字符串
+                    raw_date = item.get("date") or item.get("trade_date")
+                    date_val = raw_date.isoformat() if hasattr(raw_date, 'isoformat') else str(raw_date) if raw_date else ""
+                    nav_val = item.get("nav") or item.get("unit_nav")
+                    if date_val and nav_val is not None:
+                        historical_data.append({
+                            "date": date_val[:10],
+                            "value": float(nav_val)
+                        })
         
         # 如果技术智能体没有净值数据，尝试从编排器上下文获取
         if not historical_data and hasattr(orchestrator, '_last_context'):
             nav_history = orchestrator._last_context.get("nav_history", [])
             for item in nav_history:
-                date_val = item.get("date", "") or item.get("trade_date", "")
-                nav_val = item.get("nav", 0) or item.get("unit_nav", 0)
-                if date_val and nav_val:
+                raw_date = item.get("date") or item.get("trade_date")
+                date_val = raw_date.isoformat() if hasattr(raw_date, 'isoformat') else str(raw_date) if raw_date else ""
+                nav_val = item.get("nav") or item.get("unit_nav")
+                if date_val and nav_val is not None:
                     historical_data.append({
-                        "date": str(date_val),
+                        "date": date_val[:10],
                         "value": float(nav_val)
                     })
         

@@ -227,6 +227,9 @@ class TechnicalAgent(BaseAgent):
             start_date=start_date,
             end_date=end_date
         )
+
+        # 保存完整净值历史到实例属性，供 save_decision_report 构建走势图使用
+        self._full_nav_history = nav_history
         
         if not nav_history or len(nav_history) < 120:
             await self.add_thinking(

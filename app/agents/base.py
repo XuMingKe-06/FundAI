@@ -130,7 +130,7 @@ class BaseAgent(ABC):
             content: 思考内容
         """
         self.thinking_process.append({
-            "time": datetime.utcnow().strftime("%H:%M:%S"),
+            "time": datetime.now().strftime("%H:%M:%S"),
             "text": content
         })
         
