@@ -17,11 +17,7 @@ class LLMService:
     """
     LLM 服务类
     
-    统一封装大模型调用，支持：
-    - 阿里云百炼（开发环境）
-    - DeepSeek（生产环境）
-    
-    通过 LLM_PROVIDER 配置项切换
+    统一封装大模型调用，基于阿里云百炼 API
     """
     
     _instance: Optional["LLMService"] = None
@@ -55,10 +51,7 @@ class LLMService:
         if self._initialized:
             return
         
-        if self._provider == "aliyun":
-            self._initialize_aliyun()
-        else:
-            self._initialize_deepseek()
+        self._initialize_aliyun()
         
         self._initialized = True
         logger.info(f"LLM 服务初始化完成: provider={self._provider}, model={self._model}")
@@ -80,26 +73,6 @@ class LLMService:
         
         self._base_url = settings.ALIYUN_LLM_API_BASE
         self._model = settings.ALIYUN_LLM_MODEL
-        
-        self._client = OpenAI(
-            api_key=self._api_key,
-            base_url=self._base_url
-        )
-        self._async_client = AsyncOpenAI(
-            api_key=self._api_key,
-            base_url=self._base_url
-        )
-    
-    def _initialize_deepseek(self):
-        """
-        初始化 DeepSeek 客户端
-        """
-        self._api_key = settings.DEEPSEEK_API_KEY
-        if not self._api_key:
-            raise ValueError("请配置 DeepSeek API Key：设置 DEEPSEEK_API_KEY")
-        
-        self._base_url = settings.DEEPSEEK_API_BASE
-        self._model = settings.DEEPSEEK_MODEL
         
         self._client = OpenAI(
             api_key=self._api_key,
@@ -366,7 +339,7 @@ class LLMService:
         获取当前服务提供商
         
         Returns:
-            服务提供商名称（aliyun/deepseek）
+            服务提供商名称（aliyun）
         """
         return self._provider
 

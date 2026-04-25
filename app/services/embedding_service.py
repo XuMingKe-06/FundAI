@@ -65,15 +65,22 @@ class EmbeddingService:
     def _load_api_model(self):
         """
         加载 OpenAI API 模型
-        使用 OpenAI SDK
+        使用 OpenAI SDK，调用阿里云百炼兼容接口
         """
         from openai import OpenAI
         
+        api_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
+        if not api_key:
+            raise ValueError(
+                "请配置阿里云百炼 API Key：设置系统环境变量 DASHSCOPE_API_KEY "
+                "或在 .env 文件中配置 ALIYUN_LLM_API_KEY"
+            )
+        
         self._model = OpenAI(
-            api_key=settings.DEEPSEEK_API_KEY or "sk-dummy-key",
-            base_url=settings.DEEPSEEK_API_BASE
+            api_key=api_key,
+            base_url=settings.ALIYUN_LLM_API_BASE
         )
-        self._dimension = 1536
+        self._dimension = 1024
     
     def _load_aliyun_model(self):
         """
