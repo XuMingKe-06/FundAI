@@ -32,10 +32,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "aliyun"
     
     # 阿里云百炼配置
-    ALIYUN_LLM_API_KEY: str = ""
+    # API Key 优先读取系统环境变量 DASHSCOPE_API_KEY
     ALIYUN_LLM_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    ALIYUN_LLM_MODEL: str = "qwen3-max"
-    ALIYUN_EMBEDDING_MODEL: str = "text-embedding-v3"
     
     # 数据源配置
     TUSHARE_TOKEN: str = ""
@@ -55,7 +53,7 @@ class Settings(BaseSettings):
     
     # RAG 配置
     CHROMA_PERSIST_DIR: str = "./data/chroma"
-    EMBEDDING_MODEL_NAME: str = "text-embedding-v3"
+    EMBEDDING_MODEL_NAME: str = ""
     EMBEDDING_MODE: str = "aliyun"  # "local" 使用本地模型, "api" 使用 OpenAI API, "aliyun" 使用阿里云
     RAG_TOP_K: int = 5
     RAG_CHUNK_SIZE: int = 500
