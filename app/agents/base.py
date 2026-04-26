@@ -207,6 +207,7 @@ class BaseAgent(ABC):
             "name": tool_name,
             "args": args,
             "result": result_dict,
+            "time": datetime.now().strftime("%H:%M:%S"),
             "timestamp": datetime.utcnow().isoformat()
         })
         

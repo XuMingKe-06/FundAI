@@ -164,12 +164,16 @@ async def get_session_detail(
             except (json.JSONDecodeError, TypeError):
                 thinking_process = None
         
+        # 解析 tools_called JSONB（SQLAlchemy 自动将 JSONB 转为 Python 列表）
+        tools_called = ao.tools_called if ao.tools_called else None
+
         agent_output_list.append(AgentOutputInfo(
             agent_type=ao.agent_type,
             status=ao.status,
             score=float(ao.score) if ao.score else None,
             summary=ao.summary,
             thinking_process=thinking_process,
+            tools_called=tools_called,
             duration_ms=ao.duration_ms
         ))
     

@@ -193,6 +193,7 @@ class AgentOutputInfo(BaseModel):
     score: Optional[float] = Field(default=None, description="评分")
     summary: Optional[str] = Field(default=None, description="摘要")
     thinking_process: Optional[List[Dict[str, str]]] = Field(default=None, description="思考过程")
+    tools_called: Optional[List[Dict[str, Any]]] = Field(default=None, description="工具调用记录")
     duration_ms: Optional[int] = Field(default=None, description="执行时长")
 
 
