@@ -153,34 +153,39 @@ class RiskAgent(BaseAgent):
         
         Args:
             fund_returns: 基金日收益率数组
-            benchmark_returns: 基准日收益率数组
+            benchmark_returns: 基准日收益率数组（可能为空）
             
         Returns:
             (Beta 系数, 相关系数)
         """
         if len(fund_returns) < 2 or len(benchmark_returns) < 2:
+            # 基准数据不足时返回默认值
             return 1.0, 0.0
         
         min_len = min(len(fund_returns), len(benchmark_returns))
         fund_returns = fund_returns[:min_len]
         benchmark_returns = benchmark_returns[:min_len]
         
-        covariance = np.cov(fund_returns, benchmark_returns)[0, 1]
-        benchmark_variance = np.var(benchmark_returns, ddof=1)
-        
-        if benchmark_variance == 0:
+        try:
+            covariance = np.cov(fund_returns, benchmark_returns)[0, 1]
+            benchmark_variance = np.var(benchmark_returns, ddof=1)
+            
+            if benchmark_variance == 0:
+                return 1.0, 0.0
+            
+            beta = covariance / benchmark_variance
+            
+            fund_std = np.std(fund_returns, ddof=1)
+            benchmark_std = np.std(benchmark_returns, ddof=1)
+            if fund_std == 0 or benchmark_std == 0:
+                correlation = 0.0
+            else:
+                correlation = covariance / (fund_std * benchmark_std)
+            
+            return round(float(beta), 2), round(float(correlation), 2)
+        except Exception as e:
+            logger.warning(f"计算Beta系数失败: {e}")
             return 1.0, 0.0
-        
-        beta = covariance / benchmark_variance
-        
-        fund_std = np.std(fund_returns, ddof=1)
-        benchmark_std = np.std(benchmark_returns, ddof=1)
-        if fund_std == 0 or benchmark_std == 0:
-            correlation = 0.0
-        else:
-            correlation = covariance / (fund_std * benchmark_std)
-        
-        return round(float(beta), 2), round(float(correlation), 2)
     
     def _calculate_concentration_risk(
         self, 
@@ -248,6 +253,7 @@ class RiskAgent(BaseAgent):
             基准日收益率数组
         """
         try:
+            await self.add_thinking("正在获取沪深300基准数据...")
             benchmark_data = await datasource_manager.get_nav_history(
                 "000300",  
                 start_date,
@@ -261,9 +267,15 @@ class RiskAgent(BaseAgent):
                 values = values[values > 0]
                 if len(values) > 1:
                     returns = np.diff(values) / values[:-1]
+                    await self.add_thinking(f"获取到{len(returns)}条基准收益率数据")
                     return returns
+                else:
+                    await self.add_thinking("基准数据有效值不足")
+            else:
+                await self.add_thinking("无法获取基准数据，将跳过Beta计算")
         except Exception as e:
             logger.warning(f"获取沪深300基准数据失败: {e}")
+            await self.add_thinking(f"获取基准数据失败: {str(e)}")
         
         return np.array([])
     
@@ -350,6 +362,8 @@ class RiskAgent(BaseAgent):
         end_date = date.today()
         start_date = end_date - timedelta(days=365)
         
+        await self.add_thinking(f"开始分析基金 {fund_code} 的风险指标...")
+        await self.add_thinking(f"分析时间范围: {start_date.isoformat()} 至 {end_date.isoformat()}")
         await self.add_thinking("正在获取净值历史数据...")
         
         try:
@@ -358,13 +372,13 @@ class RiskAgent(BaseAgent):
             )
             
             if not nav_history or len(nav_history) < 2:
-                await self.add_thinking("净值数据不足，无法进行风险分析")
+                await self.add_thinking(f"获取到的净值数据不足（当前{len(nav_history) if nav_history else 0}条），无法进行风险分析")
                 return {
                     "error": "净值历史数据不足",
                     "data_sufficient": False
                 }
             
-            await self.add_thinking(f"获取到{len(nav_history)}条净值记录，开始计算风险指标...")
+            await self.add_thinking(f"成功获取到{len(nav_history)}条净值记录，开始计算风险指标...")
             
             nav_values = np.array([
                 float(d.get("nav", 0)) for d in nav_history
@@ -372,18 +386,19 @@ class RiskAgent(BaseAgent):
             nav_values = nav_values[nav_values > 0]
             
             if len(nav_values) < 2:
-                await self.add_thinking("有效净值数据不足")
+                await self.add_thinking("有效净值数据不足（过滤掉0值后）")
                 return {
                     "error": "有效净值数据不足",
                     "data_sufficient": False
                 }
             
+            await self.add_thinking(f"有效净值数据{len(nav_values)}条，计算日收益率...")
             returns = np.diff(nav_values) / nav_values[:-1]
             
             await self.add_thinking("正在计算年化波动率...")
             annual_volatility = self._calculate_volatility(returns)
             daily_volatility = round(float(np.std(returns, ddof=1) * 100), 4)
-            await self.add_thinking(f"近1年年化波动率{annual_volatility}%...")
+            await self.add_thinking(f"近1年年化波动率: {annual_volatility}%，日波动率: {daily_volatility}%")
             
             await self.add_thinking("正在计算最大回撤...")
             max_drawdown, max_dd_idx = self._calculate_max_drawdown(nav_values)
@@ -391,25 +406,30 @@ class RiskAgent(BaseAgent):
             max_drawdown_date = None
             recovery_days = None
             if max_dd_idx is not None and max_dd_idx < len(nav_history):
-                max_drawdown_date = nav_history[max_dd_idx].get("date")
+                max_drawdown_date = nav_history[max_dd_idx].get("date") or nav_history[max_dd_idx].get("trade_date")
                 recovery_days = self._estimate_recovery_days(nav_history, max_dd_idx)
-            await self.add_thinking(f"近1年最大回撤{max_drawdown}%，发生在{max_drawdown_date or '未知'}...")
+            await self.add_thinking(f"近1年最大回撤: {max_drawdown}%，发生日期: {max_drawdown_date or '未知'}")
             
             current_drawdown = self._calculate_current_drawdown(nav_values)
+            await self.add_thinking(f"当前回撤: {current_drawdown}%")
             
             await self.add_thinking("正在计算夏普比率...")
             sharpe_ratio = self._calculate_sharpe_ratio(returns, risk_free_rate=0.02)
             sharpe_desc = "优秀" if sharpe_ratio > 1 else ("良好" if sharpe_ratio > 0.5 else "一般")
-            await self.add_thinking(f"夏普比率{sharpe_ratio}，评价{sharpe_desc}...")
+            await self.add_thinking(f"夏普比率: {sharpe_ratio}（{sharpe_desc}）")
             
             calmar_ratio = self._calculate_calmar_ratio(returns, max_drawdown)
             sortino_ratio = self._calculate_sortino_ratio(returns)
+            await self.add_thinking(f"卡玛比率: {calmar_ratio}，索提诺比率: {sortino_ratio}")
             
             await self.add_thinking("正在计算Beta系数...")
             benchmark_returns = await self._get_benchmark_returns(start_date, end_date)
             beta, correlation = self._calculate_beta(returns, benchmark_returns)
-            beta_desc = "略小于市场" if beta < 1 else ("略大于市场" if beta > 1 else "与市场相当")
-            await self.add_thinking(f"Beta={beta}，波动{beta_desc}...")
+            if len(benchmark_returns) > 1:
+                beta_desc = "略小于市场" if beta < 1 else ("略大于市场" if beta > 1 else "与市场相当")
+                await self.add_thinking(f"Beta: {beta}（{beta_desc}），相关系数: {correlation}")
+            else:
+                await self.add_thinking(f"基准数据不足，Beta使用默认值: {beta}")
             
             volatility_trend = "稳定"
             if len(returns) >= 60:
@@ -421,6 +441,9 @@ class RiskAgent(BaseAgent):
                         volatility_trend = "上升"
                     elif change < -20:
                         volatility_trend = "下降"
+            
+            await self.add_thinking(f"波动率趋势: {volatility_trend}")
+            await self.add_thinking("风险指标计算完成")
             
             return {
                 "data_sufficient": True,

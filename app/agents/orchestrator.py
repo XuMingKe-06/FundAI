@@ -273,7 +273,7 @@ class AgentOrchestrator:
     支持 SSE 事件推送和超时控制。
     """
     
-    AGENT_TIMEOUT_SECONDS = 10
+    AGENT_TIMEOUT_SECONDS = 120
     
     ANALYSIS_AGENTS_CONFIG = [
         ("fundamental", "基本面分析师", FundamentalAgent),

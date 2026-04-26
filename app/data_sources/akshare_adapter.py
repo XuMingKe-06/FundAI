@@ -2,6 +2,7 @@
 Akshare 数据源适配器 - 作为备用数据源
 """
 import logging
+import asyncio
 import akshare as ak
 import pandas as pd
 from datetime import date, datetime
@@ -21,8 +22,7 @@ class AkshareAdapter(BaseDataSource):
         super().__init__(name="akshare")
         
         try:
-            # Akshare 不需要 token，直接测试是否可用
-            # 尝试获取少量数据验证连接
+            # Akshare 是同步库，初始化时直接调用（在事件循环外）
             test_df = ak.fund_name_em()
             if test_df is not None and not test_df.empty:
                 self.is_available = True
@@ -84,8 +84,8 @@ class AkshareAdapter(BaseDataSource):
         self._ensure_available()
         
         try:
-            # 首先从 fund_name_em 获取基本信息
-            fund_name_df = ak.fund_name_em()
+            # 使用 to_thread 包装同步的 Akshare 调用
+            fund_name_df = await asyncio.to_thread(ak.fund_name_em)
             
             # 筛选指定基金
             fund_row = fund_name_df[fund_name_df["基金代码"] == fund_code]
@@ -101,7 +101,7 @@ class AkshareAdapter(BaseDataSource):
             # 尝试从雪球获取更详细的信息
             detailed_info = {}
             try:
-                xq_df = ak.fund_individual_basic_info_xq(symbol=fund_code)
+                xq_df = await asyncio.to_thread(ak.fund_individual_basic_info_xq, symbol=fund_code)
                 if xq_df is not None and not xq_df.empty:
                     # 将 DataFrame 转换为字典
                     info_dict = dict(zip(xq_df["item"], xq_df["value"]))
@@ -155,8 +155,8 @@ class AkshareAdapter(BaseDataSource):
         self._ensure_available()
         
         try:
-            # 获取所有基金基本信息
-            fund_name_df = ak.fund_name_em()
+            # 使用 to_thread 包装同步调用
+            fund_name_df = await asyncio.to_thread(ak.fund_name_em)
             
             if fund_name_df.empty:
                 return []
@@ -204,8 +204,8 @@ class AkshareAdapter(BaseDataSource):
         self._ensure_available()
         
         try:
-            # 使用 fund_open_fund_info_em 获取历史净值
-            nav_df = ak.fund_open_fund_info_em(symbol=fund_code, indicator="单位净值走势")
+            # 使用 to_thread 包装同步调用
+            nav_df = await asyncio.to_thread(ak.fund_open_fund_info_em, symbol=fund_code, indicator="单位净值走势")
             
             if nav_df.empty:
                 logger.warning(f"未找到基金 {fund_code} 的净值数据")
@@ -238,7 +238,7 @@ class AkshareAdapter(BaseDataSource):
             
             # 尝试获取累计净值
             try:
-                acc_nav_df = ak.fund_open_fund_info_em(symbol=fund_code, indicator="累计净值走势")
+                acc_nav_df = await asyncio.to_thread(ak.fund_open_fund_info_em, symbol=fund_code, indicator="累计净值走势")
                 if not acc_nav_df.empty:
                     acc_nav_df.columns = ["净值日期", "累计净值"]
                     
@@ -289,8 +289,8 @@ class AkshareAdapter(BaseDataSource):
             
             for year in range(current_year, current_year - 3, -1):
                 try:
-                    # 获取股票持仓
-                    stock_df = ak.fund_portfolio_hold_em(symbol=fund_code, year=str(year))
+                    # 使用 to_thread 包装同步调用
+                    stock_df = await asyncio.to_thread(ak.fund_portfolio_hold_em, symbol=fund_code, year=str(year))
                     
                     if stock_df is not None and not stock_df.empty:
                         for _, row in stock_df.iterrows():
@@ -314,7 +314,7 @@ class AkshareAdapter(BaseDataSource):
             
             # 尝试获取债券持仓
             try:
-                bond_df = ak.fund_portfolio_bond_hold_em(symbol=fund_code, year=str(current_year))
+                bond_df = await asyncio.to_thread(ak.fund_portfolio_bond_hold_em, symbol=fund_code, year=str(current_year))
                 
                 if bond_df is not None and not bond_df.empty:
                     for _, row in bond_df.iterrows():
@@ -355,8 +355,8 @@ class AkshareAdapter(BaseDataSource):
         self._ensure_available()
         
         try:
-            # 从雪球获取基金经理信息
-            xq_df = ak.fund_individual_basic_info_xq(symbol=fund_code)
+            # 使用 to_thread 包装同步调用
+            xq_df = await asyncio.to_thread(ak.fund_individual_basic_info_xq, symbol=fund_code)
             
             if xq_df is None or xq_df.empty:
                 return None
@@ -392,8 +392,8 @@ class AkshareAdapter(BaseDataSource):
         self._ensure_available()
         
         try:
-            # 使用 fund_fee_em 获取费率信息
-            fee_df = ak.fund_fee_em(symbol=fund_code)
+            # 使用 to_thread 包装同步调用
+            fee_df = await asyncio.to_thread(ak.fund_fee_em, symbol=fund_code)
             
             if fee_df is None or fee_df.empty:
                 logger.warning(f"未找到基金 {fund_code} 的费率信息")
@@ -457,8 +457,8 @@ class AkshareAdapter(BaseDataSource):
             return False
         
         try:
-            # 尝试获取基金列表来验证 API 是否正常
-            test_df = ak.fund_name_em()
+            # 使用 to_thread 包装同步调用
+            test_df = await asyncio.to_thread(ak.fund_name_em)
             
             if test_df is not None and not test_df.empty:
                 self.is_available = True
