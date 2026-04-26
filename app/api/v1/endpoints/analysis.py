@@ -351,19 +351,29 @@ async def run_analysis_with_streaming(
             yield event
         
         try:
-            # 运行智能体
+            # 运行智能体（内部会通过回调推送流式思考事件）
             result = await agent.run(fund_code, context)
             
             # 将结果存入 orchestrator.agent_results，供决策智能体使用
             orchestrator.agent_results[agent_type] = result
             
-            # 发送思考过程
+            # 发送思考过程（作为补充，流式事件已在运行时推送）
             for step in agent.thinking_process:
                 if isinstance(step, dict):
                     content = step.get("text", str(step))
+                    thinking_id = step.get("thinking_id")
+                    thinking_type = step.get("thinking_type", "normal")
+                    event_data = {
+                        'agent_type': agent_type,
+                        'content': content,
+                        'thinking_id': thinking_id,
+                        'thinking_type': thinking_type,
+                        'timestamp': datetime.utcnow().isoformat() + 'Z'
+                    }
+                    yield f"event: thinking\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
                 else:
                     content = str(step)
-                yield f"event: thinking\ndata: {json.dumps({'agent_type': agent_type, 'content': content, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                    yield f"event: thinking\ndata: {json.dumps({'agent_type': agent_type, 'content': content, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
                 await asyncio.sleep(0.05)
             
             # 发送完成状态

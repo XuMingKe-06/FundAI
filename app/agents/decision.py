@@ -57,6 +57,57 @@ class DecisionAgent(BaseAgent):
             use_tools=False
         )
         
+        # 确保决策智能体的 summary 包含完整的结构化信息
+        # 如果 LLM 没有返回 summary，则根据 details 生成
+        if not self.summary and self.details:
+            short_term = self.details.get('short_term_decision', {})
+            long_term = self.details.get('long_term_decision', {})
+            
+            summary_parts = []
+            summary_parts.append("## 综合决策分析完成")
+            summary_parts.append("")
+            
+            # 短线决策摘要
+            st_direction = short_term.get('direction', 'hold')
+            st_direction_map = {'buy': '买入', 'sell': '卖出', 'hold': '持有'}
+            summary_parts.append(f"### 短线建议（7-30天）")
+            summary_parts.append(f"- 操作方向：{st_direction_map.get(st_direction, '持有')}")
+            summary_parts.append(f"- 建议持有期：{short_term.get('holding_period', '暂未确定')}")
+            summary_parts.append(f"- 置信度：{short_term.get('confidence', 0) * 100:.0f}%")
+            summary_parts.append("")
+            
+            # 长线决策摘要
+            lt_direction = long_term.get('direction', 'hold')
+            summary_parts.append(f"### 长线建议（6个月以上）")
+            summary_parts.append(f"- 操作方向：{st_direction_map.get(lt_direction, '持有')}")
+            summary_parts.append(f"- 置信度：{long_term.get('confidence', 0) * 100:.0f}%")
+            summary_parts.append(f"- 定投建议：{long_term.get('dip_investment_suggestion', '暂无')}")
+            summary_parts.append("")
+            
+            # 智能体评分汇总
+            agent_scores = self.details.get('agent_scores', {})
+            summary_parts.append("### 各维度评分")
+            score_names = {
+                'fundamental': '基本面',
+                'technical': '技术面',
+                'risk': '风险',
+                'cost': '成本',
+                'sentiment': '情绪'
+            }
+            for key, name in score_names.items():
+                score = agent_scores.get(key, '未知')
+                summary_parts.append(f"- {name}：{score}分")
+            summary_parts.append("")
+            
+            # 风险提示
+            reasons = short_term.get('reasons', [])
+            if reasons:
+                summary_parts.append("### 核心依据")
+                for i, reason in enumerate(reasons[:3], 1):
+                    summary_parts.append(f"{i}. {reason}")
+            
+            self.summary = '\n'.join(summary_parts)
+        
         await self.add_thinking("综合决策完成：双轨决策建议已生成。")
         
         return self.to_dict()

@@ -217,6 +217,115 @@ class LLMService:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
     
+    async def chat_stream_with_tools(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式对话 + 工具调用（异步生成器）
+
+        支持流式输出与工具调用事件推送，工具由外部执行后再次调用此方法。
+
+        Args:
+            prompt: 用户输入（或携带工具结果的新一轮消息），当 messages 为空时使用
+            tools: 工具定义列表，符合 OpenAI function calling 格式
+            system_prompt: 系统提示词
+            messages: 可选的消息历史列表，如果提供则覆盖 prompt 和 system_prompt
+            temperature: 温度参数（0-2）
+            max_tokens: 最大输出 token 数
+            **kwargs: 其他参数传递给 API
+
+        Yields:
+            - {"type": "thinking_start"}  - 开始思考
+            - {"type": "content_chunk", "content": "..."}  - 内容片段
+            - {"type": "reasoning_chunk", "content": "..."}  - 深度思考片段（如果有）
+            - {"type": "tool_calls", "tool_calls": [...]}  - 工具调用列表
+            - {"type": "complete", "content": "..."}  - 完成事件
+        """
+        self._initialize()
+
+        # 构建消息列表
+        if messages:
+            # 使用外部提供的消息历史
+            message_list = messages
+        else:
+            # 验证 prompt 不为空
+            if not prompt or not prompt.strip():
+                raise ValueError("prompt 参数不能为空")
+            message_list: List[Dict[str, Any]] = []
+            if system_prompt and system_prompt.strip():
+                message_list.append({"role": "system", "content": system_prompt.strip()})
+            message_list.append({"role": "user", "content": prompt.strip()})
+
+        # 发送开始思考事件
+        yield {"type": "thinking_start"}
+
+        response = await self._async_client.chat.completions.create(
+            model=self._model,
+            messages=message_list,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            tools=tools,
+            **kwargs
+        )
+
+        # 收集内容、推理和工具调用
+        content_buffer: List[str] = []
+        reasoning_buffer: List[str] = []
+        tool_calls_map: Dict[int, Dict[str, Any]] = {}  # index -> {id, name, args_str}
+
+        async for chunk in response:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if not delta:
+                continue
+
+            # 处理深度思考内容
+            reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if reasoning:
+                reasoning_buffer.append(reasoning)
+                yield {"type": "reasoning_chunk", "content": reasoning}
+
+            # 处理普通内容
+            if delta.content:
+                content_buffer.append(delta.content)
+                yield {"type": "content_chunk", "content": delta.content}
+
+            # 收集工具调用（流式分片）
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = getattr(tc, "index", 0)
+                    if idx not in tool_calls_map:
+                        tool_calls_map[idx] = {
+                            "id": tc.id or "",
+                            "name": tc.function.name if tc.function else "",
+                            "args_str": "",
+                        }
+                    if tc.function and tc.function.arguments:
+                        tool_calls_map[idx]["args_str"] += tc.function.arguments
+
+        # 流式结束后，如果有工具调用则推送 tool_calls 事件
+        if tool_calls_map:
+            tool_calls_list = [
+                {
+                    "id": info["id"],
+                    "name": info["name"],
+                    "arguments": info["args_str"],
+                }
+                for _, info in sorted(tool_calls_map.items())
+            ]
+            yield {"type": "tool_calls", "tool_calls": tool_calls_list}
+        else:
+            # 没有工具调用，直接完成
+            final_content = "".join(content_buffer)
+            yield {"type": "complete", "content": final_content}
+
     async def chat_with_history(
         self,
         prompt: str,

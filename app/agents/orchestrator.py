@@ -26,6 +26,7 @@ class EventType(Enum):
     """SSE 事件类型枚举"""
     AGENT_STATUS = "agent_status"
     THINKING = "thinking"
+    LLM_THINKING_STREAM = "llm_thinking_stream"
     TOOL_CALL = "tool_call"
     AGENT_COMPLETE = "agent_complete"
     ANALYSIS_COMPLETE = "analysis_complete"
@@ -98,6 +99,38 @@ class EventCallback:
             data={
                 "agent_type": agent_type,
                 "content": content,
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+            }
+        )
+        await self._queue.put(event)
+        self._events.append(event)
+    
+    async def emit_llm_thinking_stream(
+        self,
+        agent_type: str,
+        thinking_id: str,
+        content: str,
+        thinking_type: str = "normal",
+        is_complete: bool = False
+    ) -> None:
+        """
+        发送LLM流式思考内容事件
+        
+        Args:
+            agent_type: 智能体类型
+            thinking_id: 思考段落唯一标识
+            content: 思考内容片段
+            thinking_type: 思考类型，normal（普通思考）或 deep_thinking（深度思考）
+            is_complete: 是否完成
+        """
+        event = SSEEvent(
+            event_type=EventType.LLM_THINKING_STREAM,
+            data={
+                "agent_type": agent_type,
+                "thinking_id": thinking_id,
+                "content": content,
+                "thinking_type": thinking_type,
+                "is_complete": is_complete,
                 "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             }
         )
@@ -490,6 +523,14 @@ class AgentOrchestrator:
         async def thinking_callback(content: str) -> None:
             await event_callback.emit_thinking(agent_type, content)
         
+        async def streaming_thinking_callback(thinking_id: str, chunk_content: str, thinking_type: str) -> None:
+            await event_callback.emit_llm_thinking_stream(
+                agent_type=agent_type,
+                thinking_id=thinking_id,
+                content=chunk_content,
+                thinking_type=thinking_type
+            )
+        
         async def tool_call_callback(
             tool_name: str,
             tool_args: Dict[str, Any],
@@ -505,6 +546,9 @@ class AgentOrchestrator:
             )
         
         agent.set_thinking_callback(thinking_callback)
+        
+        if hasattr(agent, 'set_streaming_thinking_callback'):
+            agent.set_streaming_thinking_callback(streaming_thinking_callback)
         
         if hasattr(agent, 'set_tool_call_callback'):
             agent.set_tool_call_callback(tool_call_callback)

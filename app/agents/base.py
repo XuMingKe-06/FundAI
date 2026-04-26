@@ -9,6 +9,7 @@ from datetime import datetime
 import json
 import logging
 import asyncio
+import uuid
 
 from app.services.rag_service import get_rag_service
 from app.services.llm_service import get_llm_service
@@ -56,7 +57,9 @@ class BaseAgent(ABC):
         self._tool_registry = None
         self._prompt_template = None
         self._thinking_callback: Optional[Callable[[str], Awaitable[None]]] = None
+        self._streaming_thinking_callback: Optional[Callable[[str, str, str], Awaitable[None]]] = None
         self._tool_call_callback: Optional[Callable[[str, Dict[str, Any], Optional[Dict[str, Any]], str], Awaitable[None]]] = None
+        self._streaming_buffer: Dict[str, str] = {}  # thinking_id -> 累积的思考内容
     
     def set_thinking_callback(self, callback: Callable[[str], Awaitable[None]]) -> None:
         """
@@ -66,6 +69,48 @@ class BaseAgent(ABC):
             callback: 异步回调函数，接收思考内容
         """
         self._thinking_callback = callback
+    
+    def set_streaming_thinking_callback(self, callback: Callable[[str, str, str], Awaitable[None]]) -> None:
+        """
+        设置流式思考回调函数
+        
+        Args:
+            callback: 异步回调函数，接收 (thinking_id, chunk_content, thinking_type)
+        """
+        self._streaming_thinking_callback = callback
+    
+    async def add_streaming_thinking(self, thinking_id: str, chunk_content: str, thinking_type: str = "normal") -> None:
+        """
+        流式追加思考内容到当前思考段落
+        
+        Args:
+            thinking_id: 思考段落的唯一标识
+            chunk_content: 本次追加的思考内容片段
+            thinking_type: 思考类型，支持 "normal"（普通思考）和 "deep_thinking"（深度思考）
+        """
+        # 如果是新的 thinking_id，初始化缓冲区并添加思考记录
+        if thinking_id not in self._streaming_buffer:
+            self._streaming_buffer[thinking_id] = ""
+            thinking_record = {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "text": chunk_content,
+                "thinking_id": thinking_id,
+                "thinking_type": thinking_type
+            }
+            self.thinking_process.append(thinking_record)
+        
+        # 累积内容
+        self._streaming_buffer[thinking_id] += chunk_content
+        
+        # 更新 thinking_process 中的最后一条对应记录
+        for record in reversed(self.thinking_process):
+            if record.get("thinking_id") == thinking_id:
+                record["text"] = self._streaming_buffer[thinking_id]
+                break
+        
+        # 推送流式思考事件
+        if self._streaming_thinking_callback:
+            await self._streaming_thinking_callback(thinking_id, chunk_content, thinking_type)
     
     def set_tool_call_callback(
         self, 
@@ -122,17 +167,25 @@ class BaseAgent(ABC):
         logger.error(f"智能体 {self.name} 未知 LLM 错误: {error_str[:200]}")
         return "分析服务暂时不可用，请稍后重试"
     
-    async def add_thinking(self, content: str) -> None:
+    async def add_thinking(self, content: str, thinking_id: Optional[str] = None, thinking_type: str = "normal") -> None:
         """
         添加思考过程
         
         Args:
             content: 思考内容
+            thinking_id: 思考段落的唯一标识，如果不提供则自动生成
+            thinking_type: 思考类型，支持 "normal"（普通思考）和 "deep_thinking"（深度思考）
         """
-        self.thinking_process.append({
+        if thinking_id is None:
+            thinking_id = str(uuid.uuid4())
+        
+        thinking_record = {
             "time": datetime.now().strftime("%H:%M:%S"),
-            "text": content
-        })
+            "text": content,
+            "thinking_id": thinking_id,
+            "thinking_type": thinking_type
+        }
+        self.thinking_process.append(thinking_record)
         
         if self._thinking_callback:
             await self._thinking_callback(content)
@@ -273,7 +326,10 @@ class BaseAgent(ABC):
         max_iterations: int = 5
     ) -> str:
         """
-        带工具调用的LLM请求
+        带工具调用的流式LLM请求
+        
+        使用流式LLM调用，支持多段思考推送，工具调用前后推送思考事件。
+        最大迭代次数为5次，防止无限循环。
         
         Args:
             prompt: 用户提示词
@@ -284,33 +340,114 @@ class BaseAgent(ABC):
         Returns:
             最终响应文本
         """
-        # 验证 prompt 不为空
         if not prompt or not prompt.strip():
             logger.warning(f"智能体 {self.name} 收到空的 prompt，使用默认提示")
             prompt = "请进行分析"
         
-        # 验证 system_prompt 不为空
         if not system_prompt or not system_prompt.strip():
             system_prompt = self._get_default_system_prompt()
         
-        client = self._llm_service.get_async_client()
-        model = self._llm_service.get_model_name()
         tools = self.get_tools()
         
+        # 构建初始消息列表
         messages = [
             {"role": "system", "content": system_prompt.strip()},
             {"role": "user", "content": prompt.strip()}
         ]
         
+        final_content = ""
+        
         for iteration in range(max_iterations):
+            # 生成唯一思考ID
+            thinking_id = str(uuid.uuid4())
+            
+            await self.add_thinking(
+                f"正在调用大语言模型进行分析（第 {iteration + 1} 轮）...",
+                thinking_id=thinking_id,
+                thinking_type="normal"
+            )
+            
             try:
-                response = await client.chat.completions.create(
-                    model=model,
+                # 使用流式LLM调用，携带消息历史
+                async for event in self._llm_service.chat_stream_with_tools(
+                    prompt="",  # 使用 messages 参数，此处为空
+                    tools=tools,
                     messages=messages,
-                    temperature=temperature,
-                    tools=tools if tools else None,
-                    tool_choice="auto" if tools else None
-                )
+                    temperature=temperature
+                ):
+                    # 处理开始思考
+                    if event["type"] == "thinking_start":
+                        pass  # 已在上方推送
+                    
+                    # 处理普通内容片段
+                    elif event["type"] == "content_chunk":
+                        chunk_content = event["content"]
+                        await self.add_streaming_thinking(
+                            thinking_id=thinking_id,
+                            chunk_content=chunk_content,
+                            thinking_type="normal"
+                        )
+                        final_content += chunk_content
+                    
+                    # 处理深度思考片段
+                    elif event["type"] == "reasoning_chunk":
+                        reasoning_content = event["content"]
+                        await self.add_streaming_thinking(
+                            thinking_id=thinking_id,
+                            chunk_content=reasoning_content,
+                            thinking_type="deep_thinking"
+                        )
+                    
+                    # 处理工具调用事件
+                    elif event["type"] == "tool_calls":
+                        tool_calls = event["tool_calls"]
+                        
+                        # 添加 assistant 消息，携带工具调用信息
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": final_content if final_content else "正在调用工具...",
+                            "tool_calls": [
+                                {
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc["name"],
+                                        "arguments": tc["arguments"]
+                                    }
+                                }
+                                for tc in tool_calls
+                            ]
+                        }
+                        messages.append(assistant_message)
+                        
+                        # 执行所有工具调用
+                        for tc in tool_calls:
+                            tool_name = tc["name"]
+                            tool_args = json.loads(tc["arguments"])
+                            
+                            await self.add_thinking(f"调用工具: {tool_name}")
+                            
+                            result = await self.execute_tool(tool_name, tool_args)
+                            
+                            # 构建工具响应消息
+                            tool_content = json.dumps(result.to_dict(), ensure_ascii=False, default=str)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": tool_content if tool_content else "工具执行完成"
+                            })
+                        
+                        # 重置 final_content，用于收集下一轮工具执行后的结果
+                        final_content = ""
+                    
+                    # 处理完成事件
+                    elif event["type"] == "complete":
+                        final_content = event["content"]
+                        # 添加 assistant 消息
+                        if final_content:
+                            messages.append({"role": "assistant", "content": final_content})
+                        return final_content
+                    
             except (PermissionDeniedError, RateLimitError, APIError) as e:
                 friendly_msg = self._handle_llm_error(e)
                 self.error_message = friendly_msg
@@ -319,41 +456,9 @@ class BaseAgent(ABC):
                 friendly_msg = self._handle_llm_error(e)
                 self.error_message = friendly_msg
                 raise
-            
-            message = response.choices[0].message
-            
-            # 处理 assistant 消息：如果有 content 才添加
-            # 阿里云 API 要求 content 字段必须有值
-            if message.content and message.content.strip():
-                messages.append({"role": "assistant", "content": message.content})
-            
-            if message.tool_calls:
-                # 如果有工具调用但没有 content，需要添加一个空的 assistant 消息
-                # 但阿里云不允许空 content，所以添加一个占位符
-                if not message.content or not message.content.strip():
-                    messages.append({"role": "assistant", "content": "正在调用工具...", "tool_calls": message.tool_calls})
-                else:
-                    messages.append(message)
-                
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.function.name
-                    tool_args = json.loads(tool_call.function.arguments)
-                    
-                    await self.add_thinking(f"调用工具: {tool_name}")
-                    
-                    result = await self.execute_tool(tool_name, tool_args)
-                    
-                    # 工具响应必须有 content
-                    tool_content = json.dumps(result.to_dict(), ensure_ascii=False, default=str)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": tool_content if tool_content else "工具执行完成"
-                    })
-            else:
-                return message.content or ""
         
-        return messages[-1].get("content", "") if messages else ""
+        # 达到最大迭代次数，返回最后一条消息内容
+        return final_content
     
     async def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> ToolResult:
         """
@@ -492,18 +597,39 @@ class BaseAgent(ABC):
             解析后的结果字典
         """
         try:
-            json_start = llm_response.find("{")
-            json_end = llm_response.rfind("}") + 1
-            
-            if json_start != -1 and json_end > json_start:
-                json_str = llm_response[json_start:json_end]
+            # 尝试从Markdown代码块中提取JSON
+            import re
+            json_match = re.search(r'```json\s*([\s\S]*?)```', llm_response)
+            if json_match:
+                json_str = json_match.group(1).strip()
                 result = json.loads(json_str)
-                
                 self.score = result.get("score")
                 self.summary = result.get("summary")
                 self.details = result.get("details", {})
-                
                 return result
+            
+            # 尝试提取第一个完整的JSON对象（通过括号匹配）
+            json_start = llm_response.find("{")
+            if json_start != -1:
+                # 从第一个{开始，找到匹配的}
+                brace_count = 0
+                json_end = json_start
+                for i in range(json_start, len(llm_response)):
+                    if llm_response[i] == '{':
+                        brace_count += 1
+                    elif llm_response[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = i + 1
+                            break
+                
+                if json_end > json_start:
+                    json_str = llm_response[json_start:json_end]
+                    result = json.loads(json_str)
+                    self.score = result.get("score")
+                    self.summary = result.get("summary")
+                    self.details = result.get("details", {})
+                    return result
         except json.JSONDecodeError as e:
             logger.warning(f"JSON解析失败: {e}")
         
