@@ -15,6 +15,7 @@ from app.services.rag_service import get_rag_service
 from app.services.llm_service import get_llm_service
 from app.agents.tools.base import ToolRegistry, ToolResult
 from app.agents.prompts import get_prompt_template
+from app.agents.tools import get_tool_chinese_name
 from openai import PermissionDeniedError, RateLimitError, APIError
 
 logger = logging.getLogger(__name__)
@@ -424,8 +425,9 @@ class BaseAgent(ABC):
                         for tc in tool_calls:
                             tool_name = tc["name"]
                             tool_args = json.loads(tc["arguments"])
+                            tool_chinese_name = get_tool_chinese_name(tool_name)
                             
-                            await self.add_thinking(f"调用工具: {tool_name}")
+                            await self.add_thinking(f"正在{tool_chinese_name}...")
                             
                             result = await self.execute_tool(tool_name, tool_args)
                             
@@ -478,10 +480,11 @@ class BaseAgent(ABC):
         
         self.add_tool_call(tool_name, params, result)
         
+        tool_chinese_name = get_tool_chinese_name(tool_name)
         if result.success:
-            await self.add_thinking(f"工具 {tool_name} 执行成功")
+            await self.add_thinking(f"{tool_chinese_name}完成")
         else:
-            await self.add_thinking(f"工具 {tool_name} 执行失败: {result.error}")
+            await self.add_thinking(f"{tool_chinese_name}失败: {result.error}")
         
         return result
     
