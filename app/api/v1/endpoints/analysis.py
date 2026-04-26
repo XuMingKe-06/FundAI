@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,64 +179,9 @@ async def stream_analysis(
     # 创建编排器实例
     orchestrator = AgentOrchestrator()
     
-    # 用于存储智能体输出的列表
-    agent_outputs_data = {}
-    
     async def event_generator():
         """SSE事件生成器"""
         try:
-            # 定义智能体列表
-            agents = [
-                ("fundamental", "基本面分析师"),
-                ("technical", "技术分析师"),
-                ("risk", "风险分析师"),
-                ("cost", "成本分析师"),
-                ("sentiment", "情绪分析师"),
-                ("decision", "决策智能体")
-            ]
-            
-            # 定义进度回调函数
-            async def progress_callback(agent_type: str, agent_status: str, score: Optional[float], summary: Optional[str]):
-                """智能体进度回调函数"""
-                nonlocal agent_outputs_data
-                
-                # 发送智能体状态事件，包含score和summary
-                status_data = {'agent_type': agent_type, 'status': agent_status, 'timestamp': datetime.utcnow().isoformat() + 'Z'}
-                if score is not None:
-                    status_data['score'] = float(score)
-                if summary is not None:
-                    status_data['summary'] = summary
-                yield f"event: agent_status\ndata: {json.dumps(status_data, ensure_ascii=False)}\n\n"
-                
-                if agent_status == "running":
-                    # 获取并发送思考过程
-                    thinking_process = orchestrator.get_agent_thinking_process(agent_type)
-                    for step in thinking_process:
-                        if isinstance(step, dict):
-                            content = step.get("text", str(step))
-                        else:
-                            content = str(step)
-                        yield f"event: thinking\ndata: {json.dumps({'agent_type': agent_type, 'content': content, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
-                        await asyncio.sleep(0.1)
-                
-                elif agent_status == "completed":
-                    # 存储智能体输出
-                    agent_outputs_data[agent_type] = {
-                        "status": "completed",
-                        "score": score,
-                        "summary": summary
-                    }
-                    
-                    # 发送完成事件
-                    yield f"event: agent_complete\ndata: {json.dumps({'agent_type': agent_type, 'status': 'completed', 'score': float(score) if score else None, 'summary': summary, 'timestamp': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
-                
-                elif agent_status == "failed":
-                    # 发送失败事件，同时发送error事件以便前端展示错误信息
-                    yield f"event: agent_complete\ndata: {json.dumps({'agent_type': agent_type, 'status': 'failed', 'score': None, 'summary': summary, 'timestamp': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
-                    # 对决策智能体的失败，额外发送error事件
-                    if agent_type == "decision":
-                        yield f"event: error\ndata: {json.dumps({'error_type': 'AgentError', 'agent_type': agent_type, 'message': summary or '决策智能体执行失败', 'timestamp': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
-            
             # 构建分析上下文
             context = {
                 "fund_info": {
@@ -248,13 +194,12 @@ async def stream_analysis(
                 },
                 "user_preference": analysis_session_obj.user_preference
             }
-            
+
             # 运行完整分析流程
             async for event in run_analysis_with_streaming(
-                orchestrator, 
-                analysis_session_obj.fund_code, 
-                context, 
-                progress_callback
+                orchestrator,
+                analysis_session_obj.fund_code,
+                context
             ):
                 yield event
             
@@ -326,126 +271,168 @@ async def stream_analysis(
 async def run_analysis_with_streaming(
     orchestrator: AgentOrchestrator,
     fund_code: str,
-    context: dict,
-    progress_callback
+    context: dict
 ):
-    """运行分析并流式输出事件"""
-    
-    # 定义智能体列表
-    agents = [
-        ("fundamental", "基本面分析师"),
-        ("technical", "技术分析师"),
-        ("risk", "风险分析师"),
-        ("cost", "成本分析师"),
-        ("sentiment", "情绪分析师"),
-        ("decision", "决策智能体")
-    ]
-    
-    # 第一阶段：并行运行分析智能体
-    async def run_agent_with_streaming(agent):
-        """运行单个智能体并流式输出"""
+    """
+    运行分析并实时流式输出事件
+
+    使用共享的 asyncio.Queue 桥接 agent 内部回调与 SSE 事件流：
+    - agent 内部的 thinking/streaming/tool_call 回调将事件推入队列
+    - 异步生成器从队列实时取出事件并 yield 给 StreamingResponse
+    - 所有分析 agent 通过 asyncio.create_task() 并发执行
+    """
+    event_queue: asyncio.Queue = asyncio.Queue()
+
+    async def run_single_agent(agent):
+        """在后台运行单个 agent，通过共享队列实时推送事件"""
         agent_type = agent.agent_type
-        
-        # 发送开始状态
-        async for event in progress_callback(agent_type, "running", None, None):
-            yield event
-        
+
+        # 绑定 thinking 回调
+        async def on_thinking(content):
+            await event_queue.put(("thinking", {
+                "agent_type": agent_type,
+                "content": content,
+                "thinking_id": str(uuid.uuid4()),
+                "thinking_type": "normal",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }))
+
+        # 绑定流式 thinking 回调
+        async def on_streaming_thinking(thinking_id, chunk_content, thinking_type):
+            await event_queue.put(("llm_thinking_stream", {
+                "agent_type": agent_type,
+                "thinking_id": thinking_id,
+                "content": chunk_content,
+                "thinking_type": thinking_type,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }))
+
+        # 绑定工具调用回调
+        async def on_tool_call(tool_name, tool_args, result, status):
+            await event_queue.put(("tool_call", {
+                "agent_type": agent_type,
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+                "result": result,
+                "status": status,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }))
+
+        agent.set_thinking_callback(on_thinking)
+        agent.set_streaming_thinking_callback(on_streaming_thinking)
+        agent.set_tool_call_callback(on_tool_call)
+
+        # 推送 running 状态
+        await event_queue.put(("agent_status", {
+            "agent_type": agent_type,
+            "status": "running",
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }))
+
         try:
-            # 运行智能体（内部会通过回调推送流式思考事件）
             result = await agent.run(fund_code, context)
-            
-            # 将结果存入 orchestrator.agent_results，供决策智能体使用
             orchestrator.agent_results[agent_type] = result
-            
-            # 发送思考过程（作为补充，流式事件已在运行时推送）
-            for step in agent.thinking_process:
-                if isinstance(step, dict):
-                    content = step.get("text", str(step))
-                    thinking_id = step.get("thinking_id")
-                    thinking_type = step.get("thinking_type", "normal")
-                    event_data = {
-                        'agent_type': agent_type,
-                        'content': content,
-                        'thinking_id': thinking_id,
-                        'thinking_type': thinking_type,
-                        'timestamp': datetime.utcnow().isoformat() + 'Z'
-                    }
-                    yield f"event: thinking\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
-                else:
-                    content = str(step)
-                    yield f"event: thinking\ndata: {json.dumps({'agent_type': agent_type, 'content': content, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
-                await asyncio.sleep(0.05)
-            
-            # 发送完成状态
-            async for event in progress_callback(agent_type, "completed", agent.score, agent.summary):
-                yield event
-            
-            # 发送结果事件
-            yield f"event: result\ndata: {json.dumps({'agent_type': agent_type, 'result': result}, ensure_ascii=False, default=str)}\n\n"
-            
+
+            # 推送 completed 状态
+            completed_data = {
+                "agent_type": agent_type,
+                "status": "completed",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            if agent.score is not None:
+                completed_data["score"] = float(agent.score)
+            if agent.summary:
+                completed_data["summary"] = agent.summary
+            await event_queue.put(("agent_complete", completed_data))
+
+            # 推送 result 事件
+            await event_queue.put(("result", {
+                "agent_type": agent_type,
+                "result": result,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }))
+
         except Exception as e:
             logger.error(f"智能体 {agent_type} 执行失败: {e}")
-            # 即使失败也记录到 agent_results
             orchestrator.agent_results[agent_type] = {
                 "agent_type": agent_type,
                 "status": "failed",
                 "error": str(e)
             }
-            async for event in progress_callback(agent_type, "failed", None, str(e)):
-                yield event
-            # 发送错误结果事件
-            yield f"event: result\ndata: {json.dumps({'agent_type': agent_type, 'result': {'error': str(e)}}, ensure_ascii=False)}\n\n"
-    
-    # 并行执行所有分析智能体
-    tasks = []
+
+            await event_queue.put(("agent_complete", {
+                "agent_type": agent_type,
+                "status": "failed",
+                "score": None,
+                "summary": str(e)[:200],
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }))
+
+            # 对决策智能体额外发送 error 事件
+            if agent_type == "decision":
+                await event_queue.put(("error", {
+                    "error_type": "AgentError",
+                    "agent_type": agent_type,
+                    "message": str(e)[:200],
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }))
+
+        finally:
+            await event_queue.put(("_agent_done", agent_type))
+
+    # ===== 第一阶段：并行运行所有分析智能体 =====
+    analysis_tasks = [
+        asyncio.create_task(run_single_agent(agent))
+        for agent in orchestrator.analysis_agents
+    ]
+
+    analysis_count = len(orchestrator.analysis_agents)
+    completed_count = 0
+
+    # 消费分析 agent 的事件（实时交错推送）
+    while completed_count < analysis_count:
+        try:
+            event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+        except asyncio.TimeoutError:
+            continue
+
+        if event_type == "_agent_done":
+            completed_count += 1
+        else:
+            yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+    # 等待所有分析 agent 完成（收集可能的异常）
+    await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+    # ===== 第二阶段：运行决策智能体 =====
+    context["agent_results"] = orchestrator.agent_results
+    decision_task = asyncio.create_task(run_single_agent(orchestrator.decision_agent))
+
+    # 消费决策 agent 的事件
+    while True:
+        try:
+            event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+        except asyncio.TimeoutError:
+            if decision_task.done():
+                break
+            continue
+
+        if event_type == "_agent_done":
+            break
+        else:
+            yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+    await decision_task
+
+    # 清理回调
     for agent in orchestrator.analysis_agents:
-        async def stream_agent(a=agent):
-            async for event in run_agent_with_streaming(a):
-                yield event
-        tasks.append(stream_agent())
-    
-    # 收集所有智能体结果
-    results = []
-    for task in tasks:
-        async for event in task:
-            if event.startswith("event:"):
-                yield event
-    
-    # 运行决策智能体
-    decision_agent = orchestrator.decision_agent
-    
-    # 发送决策智能体开始状态
-    async for event in progress_callback("decision", "running", None, None):
-        yield event
-    
-    try:
-        # 将分析结果加入上下文
-        context["agent_results"] = orchestrator.agent_results
-        
-        # 运行决策智能体
-        result = await decision_agent.run(fund_code, context)
-        
-        # 发送思考过程
-        for step in decision_agent.thinking_process:
-            if isinstance(step, dict):
-                content = step.get("text", str(step))
-            else:
-                content = str(step)
-            yield f"event: thinking\ndata: {json.dumps({'agent_type': 'decision', 'content': content, 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
-            await asyncio.sleep(0.05)
-        
-        # 发送完成状态
-        async for event in progress_callback("decision", "completed", None, decision_agent.summary):
-            yield event
-        
-    except Exception as e:
-        logger.error(f"决策智能体执行失败: {e}")
-        # 将决策智能体标记为失败状态
-        decision_agent.status = "failed"
-        decision_agent.error_message = str(e)
-        decision_agent.summary = f"决策智能体执行失败: {str(e)[:200]}"
-        async for event in progress_callback("decision", "failed", None, decision_agent.summary):
-            yield event
+        agent.set_thinking_callback(None)
+        agent.set_streaming_thinking_callback(None)
+        agent.set_tool_call_callback(None)
+    if orchestrator.decision_agent:
+        orchestrator.decision_agent.set_thinking_callback(None)
+        orchestrator.decision_agent.set_streaming_thinking_callback(None)
+        orchestrator.decision_agent.set_tool_call_callback(None)
 
 
 async def save_agent_outputs(
