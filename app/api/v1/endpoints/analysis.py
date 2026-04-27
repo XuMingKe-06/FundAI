@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from redis.asyncio import Redis
 
 from app.core.database import get_async_session
@@ -40,6 +40,10 @@ from app.data_sources.manager import datasource_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analysis", tags=["分析"])
+
+# 正在分析中的会话集合（用于防止同一会话的并发编排器）
+_active_analysis_sessions: set = set()
+_active_analysis_lock = asyncio.Lock()
 
 
 @router.post("/sessions", response_model=ApiResponse[CreateSessionResponse])
@@ -171,7 +175,11 @@ async def stream_analysis(
         select(Fund).where(Fund.fund_code == analysis_session_obj.fund_code)
     )
     fund = fund_result.scalar_one_or_none()
-    
+
+    # 并发跟踪：记录正在分析的会话（仅用于断开检测后的清理）
+    async with _active_analysis_lock:
+        _active_analysis_sessions.add(session_id)
+
     # 更新会话状态
     analysis_session_obj.status = "running"
     await analysis_session.commit()
@@ -199,7 +207,8 @@ async def stream_analysis(
             async for event in run_analysis_with_streaming(
                 orchestrator,
                 analysis_session_obj.fund_code,
-                context
+                context,
+                request
             ):
                 yield event
             
@@ -256,6 +265,10 @@ async def stream_analysis(
             await analysis_session.commit()
             
             yield f"event: error\ndata: {json.dumps({'error_type': 'AnalysisError', 'message': str(e), 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+        finally:
+            # 清理：从活跃会话集合中移除
+            async with _active_analysis_lock:
+                _active_analysis_sessions.discard(session_id)
     
     return StreamingResponse(
         event_generator(),
@@ -271,7 +284,8 @@ async def stream_analysis(
 async def run_analysis_with_streaming(
     orchestrator: AgentOrchestrator,
     fund_code: str,
-    context: dict
+    context: dict,
+    request: Request
 ):
     """
     运行分析并实时流式输出事件
@@ -391,6 +405,12 @@ async def run_analysis_with_streaming(
 
     # 消费分析 agent 的事件（实时交错推送）
     while completed_count < analysis_count:
+        # 客户端断开检测
+        if await request.is_disconnected():
+            logger.warning("客户端已断开连接，不再等待分析事件")
+            # 注意：不取消 analysis_tasks 中的任务，避免中断 V8/mini-racer 操作
+            # 导致进程级崩溃（py_mini_racer 不支持并发中断）
+            raise asyncio.CancelledError("客户端已断开连接")
         try:
             event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
         except asyncio.TimeoutError:
@@ -410,6 +430,11 @@ async def run_analysis_with_streaming(
 
     # 消费决策 agent 的事件
     while True:
+        # 客户端断开检测
+        if await request.is_disconnected():
+            logger.warning("客户端已断开连接，不再等待决策分析事件")
+            # 不取消 decision_task，避免中断 V8/mini-racer 操作
+            raise asyncio.CancelledError("客户端已断开连接")
         try:
             event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
         except asyncio.TimeoutError:
@@ -421,7 +446,6 @@ async def run_analysis_with_streaming(
             break
         else:
             yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
-
     await decision_task
 
     # 清理回调
@@ -442,6 +466,11 @@ async def save_agent_outputs(
 ):
     """保存智能体输出到数据库"""
     try:
+        # 先清理该会话的旧输出（防止新旧编排器重叠导致重复数据）
+        await db_session.execute(
+            delete(AgentOutput).where(AgentOutput.session_id == session_id)
+        )
+
         # 保存分析智能体输出
         for agent in orchestrator.analysis_agents:
             # 序列化 tools_called，确保 date 对象被转换
@@ -721,6 +750,11 @@ async def save_decision_report(
                 }
             }
         
+        # 先清理该会话的旧报告（防止新旧编排器重叠导致唯一约束冲突）
+        await db_session.execute(
+            delete(DecisionReport).where(DecisionReport.session_id == session_id)
+        )
+
         # 创建决策报告
         report = DecisionReport(
             session_id=session_id,

@@ -19,11 +19,11 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     print(f"启动 {settings.APP_NAME} v{settings.APP_VERSION}")
-    
+
     # 创建数据库表
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     yield
     
     # 关闭时
