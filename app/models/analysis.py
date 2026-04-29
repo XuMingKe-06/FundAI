@@ -18,6 +18,7 @@ class AnalysisSession(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)  # 允许为空，支持匿名用户
     fund_code = Column(String(6), ForeignKey("funds.fund_code"), nullable=False, index=True)
     user_preference = Column(String(20), nullable=False, default="neutral")
+    analysis_mode = Column(String(20), nullable=False, default="parallel")
     previous_session_id = Column(
         UUID(as_uuid=True), ForeignKey("analysis_sessions.id"), nullable=True, index=True
     )

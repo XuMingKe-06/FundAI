@@ -623,64 +623,84 @@ class AgentOrchestrator:
         self,
         session_id: str,
         fund_code: str,
-        user_preference: str = "neutral"
+        user_preference: str = "neutral",
+        analysis_mode: str = "parallel"
     ) -> AsyncGenerator[SSEEvent, None]:
         """
         执行完整分析流程
-        
+
         实现两阶段执行：
-        1. 第一阶段：并行执行基本面、技术、风险、成本、情绪五个分析智能体
+        1. 第一阶段：并行或串行执行基本面、技术、风险、成本、情绪五个分析智能体
         2. 第二阶段：等待第一阶段全部完成后，执行决策智能体
-        
+
         通过异步生成器实时推送 SSE 事件。
-        
+
         Args:
             session_id: 会话ID
             fund_code: 基金代码
             user_preference: 用户风险偏好（conservative/neutral/aggressive）
-            
+            analysis_mode: 分析模式（parallel/sequential）
+
         Yields:
             SSEEvent: 实时事件流
         """
         event_callback = EventCallback()
         self.agent_results = {}
-        
+
         async def event_producer():
             """事件生产协程"""
             while True:
                 event = await event_callback.get_event()
                 if event:
                     yield event
-        
+
         producer_gen = event_producer()
-        
+
         async def run_analysis_task():
             """分析任务协程"""
             try:
                 context = await self._build_context(fund_code)
                 context["user_preference"] = user_preference
                 context["session_id"] = session_id
-                
-                logger.info(f"开始并行执行分析智能体, session_id={session_id}")
-                
-                analysis_tasks = [
-                    self._run_agent(agent, fund_code, context, event_callback)
-                    for agent in self.analysis_agents
-                ]
-                
-                results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-                
-                for i, result in enumerate(results):
-                    agent_type = self.analysis_agents[i].agent_type
-                    if isinstance(result, Exception):
-                        logger.error(f"智能体 {agent_type} 执行异常: {result}")
-                        self.agent_results[agent_type] = {
-                            "agent_type": agent_type,
-                            "status": "failed",
-                            "error": str(result)
-                        }
-                    else:
-                        self.agent_results[agent_type] = result
+                context["analysis_mode"] = analysis_mode
+
+                if analysis_mode == "sequential":
+                    logger.info(f"开始串行执行分析智能体, session_id={session_id}")
+                    for agent in self.analysis_agents:
+                        logger.info(f"执行智能体: {agent.agent_type}, session_id={session_id}")
+                        result = await self._run_agent(agent, fund_code, context, event_callback)
+                        if isinstance(result, Exception):
+                            logger.error(f"智能体 {agent.agent_type} 执行异常: {result}")
+                            self.agent_results[agent.agent_type] = {
+                                "agent_type": agent.agent_type,
+                                "status": "failed",
+                                "error": str(result)
+                            }
+                        else:
+                            self.agent_results[agent.agent_type] = result
+                        # 将当前结果注入 context 供后续 agent 参考
+                        context["agent_results"] = self.agent_results
+                else:
+                    logger.info(f"开始并行执行分析智能体, session_id={session_id}")
+
+                    analysis_tasks = [
+                        self._run_agent(agent, fund_code, context, event_callback)
+                        for agent in self.analysis_agents
+                    ]
+
+                    results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+                    for i, result in enumerate(results):
+                        agent_type = self.analysis_agents[i].agent_type
+                        if isinstance(result, Exception):
+                            logger.error(f"智能体 {agent_type} 执行异常: {result}")
+                            self.agent_results[agent_type] = {
+                                "agent_type": agent_type,
+                                "status": "failed",
+                                "error": str(result)
+                            }
+                        else:
+                            self.agent_results[agent_type] = result
                 
                 logger.info(f"所有分析智能体执行完成, session_id={session_id}")
                 
@@ -751,29 +771,31 @@ class AgentOrchestrator:
         self,
         fund_code: str,
         context: Dict[str, Any],
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        analysis_mode: str = "parallel"
     ) -> Dict[str, Any]:
         """
-        并行运行分析智能体（兼容旧接口）
-        
+        运行分析智能体（兼容旧接口）
+
         Args:
             fund_code: 基金代码
             context: 分析上下文
             progress_callback: 进度回调函数
-            
+            analysis_mode: 分析模式（parallel/sequential）
+
         Returns:
             各智能体分析结果
         """
         event_callback = EventCallback()
-        
+
         async def run_agent(agent: BaseAgent):
             """运行单个智能体"""
             try:
                 if progress_callback:
                     await progress_callback(agent.agent_type, "running", None, None)
-                
+
                 result = await self._run_agent(agent, fund_code, context, event_callback)
-                
+
                 if progress_callback:
                     await progress_callback(
                         agent.agent_type,
@@ -781,7 +803,7 @@ class AgentOrchestrator:
                         agent.score,
                         agent.summary
                     )
-                
+
                 return agent.agent_type, result
             except Exception as e:
                 if progress_callback:
@@ -792,13 +814,20 @@ class AgentOrchestrator:
                         str(e)
                     )
                 return agent.agent_type, {"error": str(e)}
-        
-        tasks = [run_agent(agent) for agent in self.analysis_agents]
-        results = await asyncio.gather(*tasks)
-        
-        for agent_type, result in results:
-            self.agent_results[agent_type] = result
-        
+
+        if analysis_mode == "sequential":
+            for agent in self.analysis_agents:
+                agent_type, result = await run_agent(agent)
+                self.agent_results[agent_type] = result
+                # 将当前结果注入 context 供后续 agent 参考
+                context["agent_results"] = self.agent_results
+        else:
+            tasks = [run_agent(agent) for agent in self.analysis_agents]
+            results = await asyncio.gather(*tasks)
+
+            for agent_type, result in results:
+                self.agent_results[agent_type] = result
+
         return self.agent_results
     
     async def run_decision_agent(

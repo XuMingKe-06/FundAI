@@ -94,6 +94,7 @@ async def create_analysis_session(
         user_id=current_user.id,
         fund_code=request.fund_code,
         user_preference=request.user_preference,
+        analysis_mode=request.analysis_mode,
         previous_session_id=uuid.UUID(request.previous_session_id) if request.previous_session_id else None,
         status="pending"
     )
@@ -110,6 +111,7 @@ async def create_analysis_session(
             fund_code=new_session.fund_code,
             fund_name=fund.fund_name,
             user_preference=new_session.user_preference,
+            analysis_mode=new_session.analysis_mode,
             status=new_session.status,
             created_at=new_session.created_at
         )
@@ -201,7 +203,8 @@ async def stream_analysis(
                     "establish_date": fund.establish_date if fund else None,
                     "current_scale": fund.current_scale if fund else None,
                 },
-                "user_preference": analysis_session_obj.user_preference
+                "user_preference": analysis_session_obj.user_preference,
+                "analysis_mode": analysis_session_obj.analysis_mode
             }
 
             # 加载前次分析报告（用于重新分析场景）
@@ -230,7 +233,8 @@ async def stream_analysis(
                 orchestrator,
                 analysis_session_obj.fund_code,
                 context,
-                request
+                request,
+                analysis_mode=analysis_session_obj.analysis_mode
             ):
                 yield event
             
@@ -307,7 +311,8 @@ async def run_analysis_with_streaming(
     orchestrator: AgentOrchestrator,
     fund_code: str,
     context: dict,
-    request: Request
+    request: Request,
+    analysis_mode: str = "parallel"
 ):
     """
     运行分析并实时流式输出事件
@@ -315,7 +320,8 @@ async def run_analysis_with_streaming(
     使用共享的 asyncio.Queue 桥接 agent 内部回调与 SSE 事件流：
     - agent 内部的 thinking/streaming/tool_call 回调将事件推入队列
     - 异步生成器从队列实时取出事件并 yield 给 StreamingResponse
-    - 所有分析 agent 通过 asyncio.create_task() 并发执行
+    - parallel 模式：所有分析 agent 通过 asyncio.create_task() 并发执行
+    - sequential 模式：分析 agent 按顺序逐个执行，前序结果注入后续 context
     """
     event_queue: asyncio.Queue = asyncio.Queue()
 
@@ -416,35 +422,63 @@ async def run_analysis_with_streaming(
         finally:
             await event_queue.put(("_agent_done", agent_type))
 
-    # ===== 第一阶段：并行运行所有分析智能体 =====
-    analysis_tasks = [
-        asyncio.create_task(run_single_agent(agent))
-        for agent in orchestrator.analysis_agents
-    ]
+    # ===== 第一阶段：运行所有分析智能体 =====
+    if analysis_mode == "sequential":
+        # 串行模式：按顺序逐个执行分析智能体
+        for agent in orchestrator.analysis_agents:
+            agent_task = asyncio.create_task(run_single_agent(agent))
 
-    analysis_count = len(orchestrator.analysis_agents)
-    completed_count = 0
+            # 消费当前 agent 的事件
+            while True:
+                if await request.is_disconnected():
+                    logger.warning("客户端已断开连接，不再等待分析事件")
+                    raise asyncio.CancelledError("客户端已断开连接")
+                try:
+                    event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    if agent_task.done():
+                        break
+                    continue
 
-    # 消费分析 agent 的事件（实时交错推送）
-    while completed_count < analysis_count:
-        # 客户端断开检测
-        if await request.is_disconnected():
-            logger.warning("客户端已断开连接，不再等待分析事件")
-            # 注意：不取消 analysis_tasks 中的任务，避免中断 V8/mini-racer 操作
-            # 导致进程级崩溃（py_mini_racer 不支持并发中断）
-            raise asyncio.CancelledError("客户端已断开连接")
-        try:
-            event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
-        except asyncio.TimeoutError:
-            continue
+                if event_type == "_agent_done":
+                    break
+                else:
+                    yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
-        if event_type == "_agent_done":
-            completed_count += 1
-        else:
-            yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+            await agent_task
 
-    # 等待所有分析 agent 完成（收集可能的异常）
-    await asyncio.gather(*analysis_tasks, return_exceptions=True)
+            # 将当前 agent 的结果注入 context，供后续 agent 参考
+            context["agent_results"] = orchestrator.agent_results
+    else:
+        # 并行模式：同时运行所有分析智能体
+        analysis_tasks = [
+            asyncio.create_task(run_single_agent(agent))
+            for agent in orchestrator.analysis_agents
+        ]
+
+        analysis_count = len(orchestrator.analysis_agents)
+        completed_count = 0
+
+        # 消费分析 agent 的事件（实时交错推送）
+        while completed_count < analysis_count:
+            # 客户端断开检测
+            if await request.is_disconnected():
+                logger.warning("客户端已断开连接，不再等待分析事件")
+                # 注意：不取消 analysis_tasks 中的任务，避免中断 V8/mini-racer 操作
+                # 导致进程级崩溃（py_mini_racer 不支持并发中断）
+                raise asyncio.CancelledError("客户端已断开连接")
+            try:
+                event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+            except asyncio.TimeoutError:
+                continue
+
+            if event_type == "_agent_done":
+                completed_count += 1
+            else:
+                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+        # 等待所有分析 agent 完成（收集可能的异常）
+        await asyncio.gather(*analysis_tasks, return_exceptions=True)
 
     # ===== 第二阶段：运行决策智能体 =====
     context["agent_results"] = orchestrator.agent_results

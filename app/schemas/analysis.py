@@ -13,6 +13,7 @@ class CreateSessionRequest(BaseModel):
     previous_session_id: Optional[str] = Field(
         default=None, description="上一轮分析会话ID，用于重新分析时参考历史报告"
     )
+    analysis_mode: str = Field(default="parallel", description="分析模式: parallel 或 sequential")
 
 
 class SessionInfo(BaseModel):
@@ -21,6 +22,7 @@ class SessionInfo(BaseModel):
     fund_code: str = Field(..., description="基金代码")
     fund_name: str = Field(..., description="基金名称")
     user_preference: str = Field(..., description="风险偏好")
+    analysis_mode: str = Field(..., description="分析模式")
     status: str = Field(..., description="会话状态")
     created_at: datetime = Field(..., description="创建时间")
     completed_at: Optional[datetime] = Field(default=None, description="完成时间")
@@ -43,6 +45,7 @@ class CreateSessionResponse(BaseModel):
     fund_code: str = Field(..., description="基金代码")
     fund_name: str = Field(..., description="基金名称")
     user_preference: str = Field(..., description="风险偏好")
+    analysis_mode: str = Field(..., description="分析模式")
     status: str = Field(..., description="会话状态")
     created_at: datetime = Field(..., description="创建时间")
 

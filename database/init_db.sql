@@ -133,6 +133,7 @@ CREATE TABLE analysis_sessions (
     user_id UUID NOT NULL,
     fund_code VARCHAR(6) NOT NULL,
     user_preference VARCHAR(20) NOT NULL DEFAULT 'neutral',
+    analysis_mode VARCHAR(20) NOT NULL DEFAULT 'parallel',
     previous_session_id UUID,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
