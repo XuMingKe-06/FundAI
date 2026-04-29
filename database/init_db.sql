@@ -133,6 +133,7 @@ CREATE TABLE analysis_sessions (
     user_id UUID NOT NULL,
     fund_code VARCHAR(6) NOT NULL,
     user_preference VARCHAR(20) NOT NULL DEFAULT 'neutral',
+    previous_session_id UUID,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
@@ -143,6 +144,7 @@ CREATE TABLE analysis_sessions (
 CREATE INDEX idx_analysis_sessions_user ON analysis_sessions(user_id);
 CREATE INDEX idx_analysis_sessions_fund ON analysis_sessions(fund_code);
 CREATE INDEX idx_analysis_sessions_status ON analysis_sessions(status);
+CREATE INDEX idx_analysis_sessions_prev_session ON analysis_sessions(previous_session_id);
 
 -- 智能体输出表
 CREATE TABLE agent_outputs (

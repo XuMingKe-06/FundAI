@@ -199,6 +199,47 @@ class DecisionPromptTemplate(PromptTemplate):
 - 预测方向：{technical.get('details', {}).get('prediction_15d', {}).get('direction', '未知')}
 
 请基于以上分析结果，按照双轨决策框架生成投资建议。"""
+        return self._add_previous_report_section(context, data_context)
+
+    def _add_previous_report_section(self, context: Dict[str, Any], data_context: str) -> str:
+        """如果存在历史分析报告，添加到提示词中供参考"""
+        previous_report = context.get("previous_report")
+        if not previous_report:
+            return data_context
+
+        prev_short = previous_report.get("short_term_decision", {})
+        prev_long = previous_report.get("long_term_decision", {})
+        prev_scores = previous_report.get("agent_scores", {})
+        prev_date = previous_report.get("analysis_date", "未知")
+        risk_alerts = previous_report.get("risk_alerts", [])
+
+        risk_text = ""
+        if risk_alerts:
+            risk_lines = "\n".join(f"- {alert}" for alert in risk_alerts)
+            risk_text = f"""### 上次分析的风险提示
+{risk_lines}
+
+"""
+
+        data_context += f"""
+
+## 历史分析参考（{prev_date}）
+
+### 上次分析的决策建议
+- 短线方向：{prev_short.get('direction', '未知')}
+- 短线置信度：{prev_short.get('confidence', '未知')}
+- 长线方向：{prev_long.get('direction', '未知')}
+- 长线置信度：{prev_long.get('confidence', '未知')}
+
+### 上次分析的各维度评分
+- 基本面：{prev_scores.get('fundamental', '未知')}分
+- 技术面：{prev_scores.get('technical', '未知')}分
+- 风险：{prev_scores.get('risk', '未知')}分
+- 成本：{prev_scores.get('cost', '未知')}分
+- 情绪：{prev_scores.get('sentiment', '未知')}分
+
+{risk_text}请参考上述历史分析数据，结合当前最新分析结果，判断该基金的投资价值是否发生变化，并给出新的决策建议。如果当前分析与历史结论一致，请说明趋势延续；如果发生变化，请重点分析变化原因。"""
+        return data_context
 
     def get_output_schema(self) -> Dict[str, Any]:
         """获取输出JSON Schema"""

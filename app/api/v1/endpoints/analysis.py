@@ -94,6 +94,7 @@ async def create_analysis_session(
         user_id=current_user.id,
         fund_code=request.fund_code,
         user_preference=request.user_preference,
+        previous_session_id=uuid.UUID(request.previous_session_id) if request.previous_session_id else None,
         status="pending"
     )
     
@@ -202,6 +203,27 @@ async def stream_analysis(
                 },
                 "user_preference": analysis_session_obj.user_preference
             }
+
+            # 加载前次分析报告（用于重新分析场景）
+            if analysis_session_obj.previous_session_id:
+                try:
+                    prev_report_result = await analysis_session.execute(
+                        select(DecisionReport).where(
+                            DecisionReport.session_id == analysis_session_obj.previous_session_id
+                        )
+                    )
+                    prev_report = prev_report_result.scalar_one_or_none()
+                    if prev_report:
+                        context["previous_report"] = {
+                            "analysis_date": prev_report.created_at.isoformat() if prev_report.created_at else None,
+                            "short_term_decision": prev_report.short_term_decision or {},
+                            "long_term_decision": prev_report.long_term_decision or {},
+                            "agent_scores": prev_report.agent_scores or {},
+                            "risk_alerts": prev_report.risk_alerts or [],
+                        }
+                        logger.info(f"已加载前次分析报告（会话 {analysis_session_obj.previous_session_id}），用于重新分析参考")
+                except Exception as e:
+                    logger.warning(f"加载前次分析报告失败: {e}")
 
             # 运行完整分析流程
             async for event in run_analysis_with_streaming(

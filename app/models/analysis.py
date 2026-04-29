@@ -18,10 +18,13 @@ class AnalysisSession(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)  # 允许为空，支持匿名用户
     fund_code = Column(String(6), ForeignKey("funds.fund_code"), nullable=False, index=True)
     user_preference = Column(String(20), nullable=False, default="neutral")
+    previous_session_id = Column(
+        UUID(as_uuid=True), ForeignKey("analysis_sessions.id"), nullable=True, index=True
+    )
     status = Column(String(20), nullable=False, default="pending")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
-    
+
     # 关联关系
     user = relationship("User", back_populates="sessions")
     fund = relationship("Fund", back_populates="sessions")

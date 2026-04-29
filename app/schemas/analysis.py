@@ -10,6 +10,9 @@ class CreateSessionRequest(BaseModel):
     """创建分析会话请求"""
     fund_code: str = Field(..., description="基金代码", min_length=6, max_length=6)
     user_preference: str = Field(default="neutral", description="风险偏好")
+    previous_session_id: Optional[str] = Field(
+        default=None, description="上一轮分析会话ID，用于重新分析时参考历史报告"
+    )
 
 
 class SessionInfo(BaseModel):
