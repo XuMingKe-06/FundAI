@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_async_session
@@ -108,6 +108,46 @@ def _direction_to_chinese(direction: Optional[str]) -> Optional[str]:
         "hold": "持有"
     }
     return direction_map.get(direction, direction)
+
+
+@router.delete("/{session_id}", response_model=ApiResponse[None])
+async def delete_session(
+    session_id: str,
+    session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user)
+):
+    """删除指定的分析会话"""
+    # 查询会话
+    result = await session.execute(
+        select(AnalysisSession).where(AnalysisSession.id == session_id)
+    )
+    analysis_session = result.scalar_one_or_none()
+
+    if not analysis_session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会话不存在"
+        )
+
+    # 验证权限
+    if str(analysis_session.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权删除此会话"
+        )
+
+    # 级联删除关联的智能体输出和决策报告
+    await session.execute(
+        delete(AgentOutput).where(AgentOutput.session_id == session_id)
+    )
+    await session.execute(
+        delete(DecisionReport).where(DecisionReport.session_id == session_id)
+    )
+    await session.delete(analysis_session)
+    await session.commit()
+
+    logger.info(f"用户 {current_user.id} 删除了会话 {session_id}")
+    return ApiResponse(code=200, message="会话已删除", data=None)
 
 
 @router.get("/{session_id}", response_model=ApiResponse[SessionDetail])
