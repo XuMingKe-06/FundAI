@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from sqlalchemy.orm import joinedload
 
 from app.core.database import get_async_session
 from app.core.security import get_current_user
@@ -32,50 +33,44 @@ async def get_sessions(
 ):
     """获取用户会话列表"""
     
-    # 构建查询
-    query = select(AnalysisSession).where(AnalysisSession.user_id == current_user.id)
-    
+    # 构建查询，使用 joinedload 预先加载 fund 和 report 关联，避免 N+1
+    query = (
+        select(AnalysisSession)
+        .options(joinedload(AnalysisSession.fund), joinedload(AnalysisSession.report))
+        .where(AnalysisSession.user_id == current_user.id)
+    )
+
     if status:
         query = query.where(AnalysisSession.status == status)
-    
+
     # 计算总数
     count_query = select(AnalysisSession.id).where(AnalysisSession.user_id == current_user.id)
     if status:
         count_query = count_query.where(AnalysisSession.status == status)
-    
+
     total_result = await session.execute(count_query)
     total = len(total_result.all())
-    
+
     # 分页
     offset = (page - 1) * size
     query = query.order_by(desc(AnalysisSession.created_at)).offset(offset).limit(size)
-    
+
     result = await session.execute(query)
-    sessions = result.scalars().all()
-    
-    # 构建响应
+    # unique() 必须调用，因为 joinedload 会产生重复行
+    sessions = result.unique().scalars().all()
+
+    # 构建响应（直接从已加载的关联中读取，无需额外查询）
     items = []
     for s in sessions:
-        # 查询基金名称
-        fund_result = await session.execute(
-            select(Fund.fund_name).where(Fund.fund_code == s.fund_code)
-        )
-        fund_name = fund_result.scalar_one_or_none() or "未知基金"
-        
-        # 查询决策方向
+        fund_name = s.fund.fund_name if s.fund else "未知基金"
+
         short_term_direction = None
         long_term_direction = None
-        if s.status == "completed":
-            # 从决策报告中获取方向
-            report_result = await session.execute(
-                select(DecisionReport).where(DecisionReport.session_id == s.id)
-            )
-            report = report_result.scalar_one_or_none()
-            if report:
-                short_term_decision = report.short_term_decision or {}
-                long_term_decision = report.long_term_decision or {}
-                short_term_direction = _direction_to_chinese(short_term_decision.get("direction"))
-                long_term_direction = _direction_to_chinese(long_term_decision.get("direction"))
+        if s.status == "completed" and s.report:
+            short_term_decision = s.report.short_term_decision or {}
+            long_term_decision = s.report.long_term_decision or {}
+            short_term_direction = _direction_to_chinese(short_term_decision.get("direction"))
+            long_term_direction = _direction_to_chinese(long_term_decision.get("direction"))
         
         items.append(SessionListItem(
             session_id=str(s.id),
