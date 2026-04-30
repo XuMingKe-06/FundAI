@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # 阿里云百炼配置
     # API Key 优先读取系统环境变量 DASHSCOPE_API_KEY
     ALIYUN_LLM_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    ALIYUN_LLM_MODEL: str = "deepseek-v3"
+    ALIYUN_LLM_MODEL: str = "deepseek-v3.1"
     ALIYUN_EMBEDDING_MODEL: str = "text-embedding-v3"
     
     # 数据源配置

@@ -46,34 +46,31 @@ class LLMService:
     def _initialize(self):
         """
         延迟初始化客户端
-        只在第一次调用时创建连接
+        每次调用时检测 .env 配置变更，自动重建客户端
         """
-        if self._initialized:
+        # 强制重载 .env 文件，使模型切换无需重启服务
+        self._reload_env()
+
+        current_model = os.getenv("ALIYUN_LLM_MODEL") or settings.ALIYUN_LLM_MODEL
+        current_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
+        current_base = os.getenv("ALIYUN_LLM_API_BASE") or settings.ALIYUN_LLM_API_BASE
+
+        if self._initialized and self._model == current_model and self._api_key == current_key and self._base_url == current_base:
             return
-        
-        self._initialize_aliyun()
-        
-        self._initialized = True
-        logger.info(f"LLM 服务初始化完成: provider={self._provider}, model={self._model}")
-    
-    def _initialize_aliyun(self):
-        """
-        初始化阿里云百炼客户端
-        
-        API Key 读取优先级：
-        1. 系统环境变量 DASHSCOPE_API_KEY
-        2. 配置文件中的 ALIYUN_LLM_API_KEY
-        """
-        self._api_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
+
+        if self._initialized:
+            logger.info(f"检测到 LLM 配置变更，重新初始化: model={self._model} -> {current_model}")
+
+        self._model = current_model
+        self._api_key = current_key
+        self._base_url = current_base
+
         if not self._api_key:
             raise ValueError(
                 "请配置阿里云百炼 API Key：设置系统环境变量 DASHSCOPE_API_KEY "
                 "或在 .env 文件中配置 ALIYUN_LLM_API_KEY"
             )
-        
-        self._base_url = settings.ALIYUN_LLM_API_BASE
-        self._model = settings.ALIYUN_LLM_MODEL
-        
+
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url
@@ -82,6 +79,21 @@ class LLMService:
             api_key=self._api_key,
             base_url=self._base_url
         )
+
+        self._initialized = True
+        logger.info(f"LLM 服务初始化完成: provider={self._provider}, model={self._model}")
+
+    def _reload_env(self):
+        """重新加载 .env 文件，使模型切换等配置变更即时生效"""
+        try:
+            from dotenv import load_dotenv
+            import os as _os
+            # 从当前文件向上查找项目根目录下的 .env
+            env_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), ".env")
+            if _os.path.exists(env_path):
+                load_dotenv(env_path, override=True)
+        except Exception:
+            pass  # dotenv 加载失败时使用已缓存的配置
     
     def chat(
         self,
