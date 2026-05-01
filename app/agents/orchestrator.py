@@ -523,12 +523,13 @@ class AgentOrchestrator:
         async def thinking_callback(content: str) -> None:
             await event_callback.emit_thinking(agent_type, content)
         
-        async def streaming_thinking_callback(thinking_id: str, chunk_content: str, thinking_type: str) -> None:
+        async def streaming_thinking_callback(thinking_id: str, chunk_content: str, thinking_type: str, is_complete: bool = False) -> None:
             await event_callback.emit_llm_thinking_stream(
                 agent_type=agent_type,
                 thinking_id=thinking_id,
                 content=chunk_content,
-                thinking_type=thinking_type
+                thinking_type=thinking_type,
+                is_complete=is_complete
             )
         
         async def tool_call_callback(

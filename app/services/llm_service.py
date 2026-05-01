@@ -2,6 +2,7 @@
 LLM 服务模块
 提供统一的大模型调用接口，支持阿里云百炼和 DeepSeek 切换
 """
+import asyncio
 import os
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from functools import lru_cache
@@ -302,12 +303,31 @@ class LLMService:
             reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
             if reasoning:
                 reasoning_buffer.append(reasoning)
-                yield {"type": "reasoning_chunk", "content": reasoning}
+                # 将大块思考内容拆分为小片段，实现平滑的流式输出效果
+                # DeepSeek-R1 通过 DashScope 可能一次性返回大量思考内容
+                CHUNK_SIZE = 80
+                if len(reasoning) > CHUNK_SIZE:
+                    for i in range(0, len(reasoning), CHUNK_SIZE):
+                        piece = reasoning[i:i + CHUNK_SIZE]
+                        yield {"type": "reasoning_chunk", "content": piece}
+                        if i + CHUNK_SIZE < len(reasoning):
+                            await asyncio.sleep(0.02)  # 片段间隔，给 SSE 消费时间
+                else:
+                    yield {"type": "reasoning_chunk", "content": reasoning}
 
             # 处理普通内容
             if delta.content:
                 content_buffer.append(delta.content)
-                yield {"type": "content_chunk", "content": delta.content}
+                # 同样拆分大的内容块，确保流式输出的平滑性
+                CHUNK_SIZE = 80
+                if len(delta.content) > CHUNK_SIZE:
+                    for i in range(0, len(delta.content), CHUNK_SIZE):
+                        piece = delta.content[i:i + CHUNK_SIZE]
+                        yield {"type": "content_chunk", "content": piece}
+                        if i + CHUNK_SIZE < len(delta.content):
+                            await asyncio.sleep(0.02)
+                else:
+                    yield {"type": "content_chunk", "content": delta.content}
 
             # 收集工具调用（流式分片）
             if delta.tool_calls:

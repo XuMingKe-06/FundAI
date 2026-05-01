@@ -58,7 +58,7 @@ class BaseAgent(ABC):
         self._tool_registry = None
         self._prompt_template = None
         self._thinking_callback: Optional[Callable[[str], Awaitable[None]]] = None
-        self._streaming_thinking_callback: Optional[Callable[[str, str, str], Awaitable[None]]] = None
+        self._streaming_thinking_callback: Optional[Callable[[str, str, str, bool], Awaitable[None]]] = None
         self._tool_call_callback: Optional[Callable[[str, Dict[str, Any], Optional[Dict[str, Any]], str], Awaitable[None]]] = None
         self._streaming_buffer: Dict[str, str] = {}  # thinking_id -> 累积的思考内容
     
@@ -71,23 +71,24 @@ class BaseAgent(ABC):
         """
         self._thinking_callback = callback
     
-    def set_streaming_thinking_callback(self, callback: Callable[[str, str, str], Awaitable[None]]) -> None:
+    def set_streaming_thinking_callback(self, callback: Callable[[str, str, str, bool], Awaitable[None]]) -> None:
         """
         设置流式思考回调函数
-        
+
         Args:
-            callback: 异步回调函数，接收 (thinking_id, chunk_content, thinking_type)
+            callback: 异步回调函数，接收 (thinking_id, chunk_content, thinking_type, is_complete)
         """
         self._streaming_thinking_callback = callback
     
-    async def add_streaming_thinking(self, thinking_id: str, chunk_content: str, thinking_type: str = "normal") -> None:
+    async def add_streaming_thinking(self, thinking_id: str, chunk_content: str, thinking_type: str = "normal", is_complete: bool = False) -> None:
         """
         流式追加思考内容到当前思考段落
-        
+
         Args:
             thinking_id: 思考段落的唯一标识
             chunk_content: 本次追加的思考内容片段
             thinking_type: 思考类型，支持 "normal"（普通思考）和 "deep_thinking"（深度思考）
+            is_complete: 是否完成
         """
         # 如果是新的 thinking_id，初始化缓冲区并添加思考记录
         if thinking_id not in self._streaming_buffer:
@@ -99,19 +100,20 @@ class BaseAgent(ABC):
                 "thinking_type": thinking_type
             }
             self.thinking_process.append(thinking_record)
-        
-        # 累积内容
-        self._streaming_buffer[thinking_id] += chunk_content
-        
+
+        # 累积内容（仅当有内容时）
+        if chunk_content:
+            self._streaming_buffer[thinking_id] += chunk_content
+
         # 更新 thinking_process 中的最后一条对应记录
         for record in reversed(self.thinking_process):
             if record.get("thinking_id") == thinking_id:
                 record["text"] = self._streaming_buffer[thinking_id]
                 break
-        
+
         # 推送流式思考事件
         if self._streaming_thinking_callback:
-            await self._streaming_thinking_callback(thinking_id, chunk_content, thinking_type)
+            await self._streaming_thinking_callback(thinking_id, chunk_content, thinking_type, is_complete)
     
     def set_tool_call_callback(
         self, 
@@ -446,6 +448,12 @@ class BaseAgent(ABC):
                     # 处理完成事件
                     elif event["type"] == "complete":
                         final_content = event["content"]
+                        # 标记流式思考完成
+                        await self.add_streaming_thinking(
+                            thinking_id, "",
+                            "deep_thinking" if thinking_id in self._streaming_buffer and self._streaming_buffer[thinking_id] else "normal",
+                            is_complete=True
+                        )
                         # 添加 assistant 消息
                         if final_content:
                             messages.append({"role": "assistant", "content": final_content})

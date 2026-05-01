@@ -5,7 +5,7 @@ import json
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Callable
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from redis.asyncio import Redis
 
-from app.core.database import get_async_session
+from app.core.database import get_async_session, AsyncSessionLocal
 from app.core.redis_client import get_redis, CacheKeys, CacheExpire
 from app.core.security import get_current_user, get_current_user_from_query_or_header
 from app.models.user import User
@@ -44,6 +44,16 @@ router = APIRouter(prefix="/analysis", tags=["分析"])
 # 正在分析中的会话集合（用于防止同一会话的并发编排器）
 _active_analysis_sessions: set = set()
 _active_analysis_lock = asyncio.Lock()
+
+# 全局事件队列字典 — 用于页面刷新重连时复用已有分析流
+_active_event_queues: dict = {}  # key: session_id, value: asyncio.Queue
+_active_queues_lock = asyncio.Lock()
+
+# 全局事件缓冲区 — 用于页面刷新重连时回放运行中智能体的历史事件
+_active_event_buffers: dict[str, list] = {}  # key: session_id, value: list of (event_type, data)
+
+# 全局运行中智能体追踪 — 用于重连时发送 agent_status 事件
+_active_running_agents: dict[str, set[str]] = {}  # key: session_id, value: set of agent_type
 
 
 @router.post("/sessions", response_model=ApiResponse[CreateSessionResponse])
@@ -172,6 +182,100 @@ async def stream_analysis(
                 "X-Accel-Buffering": "no"
             }
         )
+
+    # 如果会话状态为 running，检查是否有活跃的事件队列（页面刷新重连场景）
+    if analysis_session_obj.status == "running":
+        async with _active_queues_lock:
+            existing_queue = _active_event_queues.get(session_id)
+        if existing_queue is not None:
+            logger.info(f"会话 {session_id} 已有活跃的分析流，复用已有队列进行重连")
+
+            # 先加载已有 agent outputs，在 reconnect_generator 中作为初始事件发送
+            agent_outputs_result = await analysis_session.execute(
+                select(AgentOutput).where(AgentOutput.session_id == session_id)
+            )
+            existing_outputs_list = agent_outputs_result.scalars().all()
+
+            async def reconnect_generator():
+                """重连生成器：先发送快照和运行中智能体状态，再回放缓冲区事件，最后从队列消费"""
+                # ---- 第1步：发送已完成智能体的快照（从数据库） ----
+                completed_agent_types: set[str] = set()
+                for ao in existing_outputs_list:
+                    thinking_process = None
+                    if ao.thinking_process:
+                        try:
+                            thinking_process = json.loads(ao.thinking_process) if isinstance(ao.thinking_process, str) else ao.thinking_process
+                        except (json.JSONDecodeError, TypeError):
+                            thinking_process = None
+                    tools_called = ao.tools_called if ao.tools_called else None
+                    status_str = "error" if ao.status == "failed" else ao.status
+                    score_val = float(ao.score) if ao.score else None
+                    snapshot_data = {
+                        "agent_type": ao.agent_type,
+                        "status": status_str,
+                        "score": score_val,
+                        "summary": ao.summary,
+                        "thinking_process": thinking_process,
+                        "tools_called": tools_called,
+                        "duration_ms": ao.duration_ms,
+                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                    }
+                    completed_agent_types.add(ao.agent_type)
+                    yield f"event: agent_snapshot\ndata: {json.dumps(snapshot_data, ensure_ascii=False, default=str)}\n\n"
+
+                # ---- 第2步：发送运行中智能体的 agent_status 事件 ----
+                running_agents = _active_running_agents.get(session_id, set()).copy()
+                for agent_type in running_agents:
+                    if agent_type not in completed_agent_types:
+                        yield f"event: agent_status\ndata: {json.dumps({'agent_type': agent_type, 'status': 'running', 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+
+                # ---- 第3步：回放缓冲区中运行中智能体的历史事件 ----
+                buffer_snapshot = list(_active_event_buffers.get(session_id, []))
+                for buf_event_type, buf_data in buffer_snapshot:
+                    # 跳过内部信号
+                    if buf_event_type in ("_agent_done", "_analysis_done"):
+                        continue
+                    # 跳过已完成智能体的事件（已通过 agent_snapshot 发送完整快照）
+                    buf_agent_type = buf_data.get("agent_type") if isinstance(buf_data, dict) else None
+                    if buf_agent_type and buf_agent_type in completed_agent_types:
+                        continue
+                    # 跳过 agent_status 事件（已在第2步中发送）
+                    if buf_event_type == "agent_status":
+                        continue
+                    yield f"event: {buf_event_type}\ndata: {json.dumps(buf_data, ensure_ascii=False, default=str)}\n\n"
+
+                # ---- 第4步：从已有队列消费后续事件 ----
+                try:
+                    while True:
+                        try:
+                            event_type, data = await asyncio.wait_for(existing_queue.get(), timeout=0.5)
+                        except asyncio.TimeoutError:
+                            # 超时检查 session 是否已完成
+                            async with _active_analysis_lock:
+                                still_active = session_id in _active_analysis_sessions
+                            if not still_active:
+                                # 分析已完成，判断最终状态
+                                await analysis_session.refresh(analysis_session_obj)
+                                if analysis_session_obj.status == "completed":
+                                    yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                                else:
+                                    yield f"event: error\ndata: {json.dumps({'error_type': 'SessionFailed', 'message': '分析任务已结束', 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                                return
+                            continue
+
+                        if event_type == "_analysis_done":
+                            yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.utcnow().isoformat() + 'Z'})}\n\n"
+                            return
+                        if event_type in ("_agent_done",):
+                            continue  # 内部信号，不转发
+                        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+                except asyncio.CancelledError:
+                    logger.info(f"客户端断开连接，停止重连流消费: session={session_id}")
+            return StreamingResponse(
+                reconnect_generator(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+            )
     
     # 查询基金信息
     fund_result = await analysis_session.execute(
@@ -228,13 +332,15 @@ async def stream_analysis(
                 except Exception as e:
                     logger.warning(f"加载前次分析报告失败: {e}")
 
-            # 运行完整分析流程
+            # 运行完整分析流程（传入 session_id 支持重连复用队列）
             async for event in run_analysis_with_streaming(
                 orchestrator,
                 analysis_session_obj.fund_code,
                 context,
                 request,
-                analysis_mode=analysis_session_obj.analysis_mode
+                analysis_mode=analysis_session_obj.analysis_mode,
+                save_func=lambda agent: save_agent_snapshot(session_id, agent),
+                session_id=session_id
             ):
                 yield event
             
@@ -312,7 +418,9 @@ async def run_analysis_with_streaming(
     fund_code: str,
     context: dict,
     request: Request,
-    analysis_mode: str = "parallel"
+    analysis_mode: str = "parallel",
+    save_func: Optional[Callable] = None,
+    session_id: str = ""
 ):
     """
     运行分析并实时流式输出事件
@@ -322,8 +430,29 @@ async def run_analysis_with_streaming(
     - 异步生成器从队列实时取出事件并 yield 给 StreamingResponse
     - parallel 模式：所有分析 agent 通过 asyncio.create_task() 并发执行
     - sequential 模式：分析 agent 按顺序逐个执行，前序结果注入后续 context
+    - 事件同时写入缓冲区，支持页面刷新重连时回放运行中智能体的历史事件
     """
     event_queue: asyncio.Queue = asyncio.Queue()
+
+    # 注册全局事件队列和缓冲区，支持页面刷新重连时复用
+    if session_id:
+        async with _active_queues_lock:
+            _active_event_queues[session_id] = event_queue
+        _active_event_buffers[session_id] = []
+        _active_running_agents[session_id] = set()
+
+    async def _emit_event(event_type: str, data: dict):
+        """将事件放入队列并缓冲（用于重连回放），同时追踪运行中智能体"""
+        await event_queue.put((event_type, data))
+        # 缓冲非内部信号的事件
+        if session_id and event_type not in ("_agent_done", "_analysis_done"):
+            _active_event_buffers[session_id].append((event_type, data))
+        # 追踪运行中智能体
+        if session_id:
+            if event_type == "agent_status" and isinstance(data, dict) and data.get("status") == "running":
+                _active_running_agents[session_id].add(data.get("agent_type"))
+            elif event_type == "agent_complete" and isinstance(data, dict):
+                _active_running_agents[session_id].discard(data.get("agent_type"))
 
     async def run_single_agent(agent):
         """在后台运行单个 agent，通过共享队列实时推送事件"""
@@ -331,49 +460,57 @@ async def run_analysis_with_streaming(
 
         # 绑定 thinking 回调
         async def on_thinking(content):
-            await event_queue.put(("thinking", {
+            await _emit_event("thinking", {
                 "agent_type": agent_type,
                 "content": content,
                 "thinking_id": str(uuid.uuid4()),
                 "thinking_type": "normal",
                 "timestamp": datetime.utcnow().isoformat() + "Z"
-            }))
+            })
 
         # 绑定流式 thinking 回调
-        async def on_streaming_thinking(thinking_id, chunk_content, thinking_type):
-            await event_queue.put(("llm_thinking_stream", {
+        async def on_streaming_thinking(thinking_id, chunk_content, thinking_type, is_complete=False):
+            await _emit_event("llm_thinking_stream", {
                 "agent_type": agent_type,
                 "thinking_id": thinking_id,
                 "content": chunk_content,
                 "thinking_type": thinking_type,
+                "is_complete": is_complete,
                 "timestamp": datetime.utcnow().isoformat() + "Z"
-            }))
+            })
 
         # 绑定工具调用回调
         async def on_tool_call(tool_name, tool_args, result, status):
-            await event_queue.put(("tool_call", {
+            await _emit_event("tool_call", {
                 "agent_type": agent_type,
                 "tool_name": tool_name,
                 "tool_args": tool_args,
                 "result": result,
                 "status": status,
                 "timestamp": datetime.utcnow().isoformat() + "Z"
-            }))
+            })
 
         agent.set_thinking_callback(on_thinking)
         agent.set_streaming_thinking_callback(on_streaming_thinking)
         agent.set_tool_call_callback(on_tool_call)
 
         # 推送 running 状态
-        await event_queue.put(("agent_status", {
+        await _emit_event("agent_status", {
             "agent_type": agent_type,
             "status": "running",
             "timestamp": datetime.utcnow().isoformat() + "Z"
-        }))
+        })
 
         try:
             result = await agent.run(fund_code, context)
             orchestrator.agent_results[agent_type] = result
+
+            # 保存已完成的智能体输出（支持页面刷新恢复）
+            if save_func:
+                try:
+                    await save_func(agent)
+                except Exception as save_err:
+                    logger.warning(f"保存智能体 {agent_type} 输出失败: {save_err}")
 
             # 推送 completed 状态
             completed_data = {
@@ -385,14 +522,14 @@ async def run_analysis_with_streaming(
                 completed_data["score"] = float(agent.score)
             if agent.summary:
                 completed_data["summary"] = agent.summary
-            await event_queue.put(("agent_complete", completed_data))
+            await _emit_event("agent_complete", completed_data)
 
             # 推送 result 事件
-            await event_queue.put(("result", {
+            await _emit_event("result", {
                 "agent_type": agent_type,
                 "result": result,
                 "timestamp": datetime.utcnow().isoformat() + "Z"
-            }))
+            })
 
         except Exception as e:
             logger.error(f"智能体 {agent_type} 执行失败: {e}")
@@ -402,24 +539,32 @@ async def run_analysis_with_streaming(
                 "error": str(e)
             }
 
-            await event_queue.put(("agent_complete", {
+            # 保存失败的智能体输出
+            if save_func:
+                try:
+                    await save_func(agent)
+                except Exception as save_err:
+                    logger.warning(f"保存失败智能体 {agent_type} 输出失败: {save_err}")
+
+            await _emit_event("agent_complete", {
                 "agent_type": agent_type,
                 "status": "failed",
                 "score": None,
                 "summary": str(e)[:200],
                 "timestamp": datetime.utcnow().isoformat() + "Z"
-            }))
+            })
 
             # 对决策智能体额外发送 error 事件
             if agent_type == "decision":
-                await event_queue.put(("error", {
+                await _emit_event("error", {
                     "error_type": "AgentError",
                     "agent_type": agent_type,
                     "message": str(e)[:200],
                     "timestamp": datetime.utcnow().isoformat() + "Z"
-                }))
+                })
 
         finally:
+            # 内部信号，不缓冲
             await event_queue.put(("_agent_done", agent_type))
 
     # ===== 第一阶段：运行所有分析智能体 =====
@@ -513,6 +658,53 @@ async def run_analysis_with_streaming(
         orchestrator.decision_agent.set_thinking_callback(None)
         orchestrator.decision_agent.set_streaming_thinking_callback(None)
         orchestrator.decision_agent.set_tool_call_callback(None)
+
+    # 向重连的 SSE 连接发送分析完成信号，然后清理全局队列和缓冲区
+    if session_id:
+        try:
+            # 发送完成信号（给异步等待的重连连接）
+            await event_queue.put(("_analysis_done", {"session_id": session_id}))
+        except Exception:
+            pass  # 队列可能已关闭
+        async with _active_queues_lock:
+            _active_event_queues.pop(session_id, None)
+        # 清理缓冲区和运行中智能体追踪
+        _active_event_buffers.pop(session_id, None)
+        _active_running_agents.pop(session_id, None)
+
+
+async def save_agent_snapshot(session_id: str, agent) -> None:
+    """使用独立 DB 会话保存单个智能体输出快照（支持页面刷新恢复）"""
+    try:
+        async with AsyncSessionLocal() as db_session:
+            # 先清理该智能体的旧输出
+            await db_session.execute(
+                delete(AgentOutput).where(
+                    AgentOutput.session_id == session_id,
+                    AgentOutput.agent_type == agent.agent_type
+                )
+            )
+            tools_called_data = None
+            if agent.tools_called:
+                tools_called_data = json.loads(json.dumps(agent.tools_called, ensure_ascii=False, default=str))
+            agent_output = AgentOutput(
+                session_id=session_id,
+                agent_type=agent.agent_type,
+                status=agent.status,
+                score=agent.score,
+                summary=agent.summary,
+                details=agent.details,
+                thinking_process=json.dumps(agent.thinking_process, ensure_ascii=False, default=str) if agent.thinking_process else None,
+                tools_called=tools_called_data,
+                error_message=agent.error_message,
+                started_at=agent.started_at or datetime.utcnow(),
+                completed_at=agent.completed_at or datetime.utcnow(),
+                duration_ms=agent.duration_ms
+            )
+            db_session.add(agent_output)
+            await db_session.commit()
+    except Exception as e:
+        logger.warning(f"保存智能体 {agent.agent_type} 快照失败: {e}")
 
 
 async def save_agent_outputs(
