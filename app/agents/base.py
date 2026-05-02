@@ -5,7 +5,7 @@
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Callable, Awaitable
-from datetime import datetime
+from datetime import datetime, date
 import json
 import logging
 import asyncio
@@ -701,7 +701,11 @@ class BaseAgent(ABC):
             分析结果字典
         """
         context["fund_code"] = fund_code
-        
+
+        # 注入当前日期信息到上下文，使智能体感知当前时间
+        context["current_date"] = date.today().isoformat()
+        context["current_datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         if use_rag:
             rag_context = await self.build_rag_context(
                 query=f"{self.agent_type}分析 {fund_code}",
@@ -709,11 +713,22 @@ class BaseAgent(ABC):
             )
             if rag_context:
                 context["rag_knowledge"] = rag_context
-        
+
         prompt = self.build_context_prompt(context)
-        
+
+        # 构建包含当前时间信息的系统提示词
+        system_prompt = self.get_system_prompt()
+        system_prompt += (
+            f"\n\n## 当前时间信息\n"
+            f"- 当前日期：{context['current_date']}\n"
+            f"- 当前时间：{context['current_datetime']}\n\n"
+            f"重要提示：请基于上述当前时间进行分析。数据中出现的日期如果早于或等于当前日期，"
+            f"均为有效的历史数据。"
+        )
+
         llm_response = await self.call_llm(
             prompt=prompt,
+            system_prompt=system_prompt,
             use_tools=use_tools
         )
         
