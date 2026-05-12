@@ -1,62 +1,57 @@
-# FundAI Server - 多智能体场外基金分析决策系统后端
+# FundAI - 多智能体场外基金分析决策系统
 
 ## 项目概述
 
-FundAI Server 是多智能体场外基金分析决策系统的后端服务，提供基金分析、决策建议等功能的RESTful API。
+FundAI 是一个基于多智能体协作的场外基金分析决策系统，通过多个专业智能体（基本面分析师、技术分析师、风险分析师、成本分析师、情绪分析师）协同工作，为用户提供经过成本校验的投资建议。
 
 ## 技术栈
 
-- **Python 3.11+** - 主要开发语言
+### 后端
+- **Python 3.12+** - 主要开发语言
 - **FastAPI 0.109+** - Web框架
 - **SQLAlchemy 2.0+** - ORM
 - **PostgreSQL 15+** - 主数据库
 - **Redis 7.0+** - 缓存和消息队列
 - **LangChain/LangGraph** - 智能体框架
 
+### 前端
+- **Nuxt 4.x** - Vue.js 全栈框架
+- **Vue 3.5+** - 前端框架
+- **Element Plus** - UI组件库
+- **Pinia** - 状态管理
+- **ECharts** - 图表库
+- **TypeScript** - 类型支持
+
 ## 项目结构
 
 ```
-FundAI_Server/
-├── app/
+FundAI/
+├── app/                        # 后端应用
 │   ├── api/                    # API路由
 │   │   └── v1/
 │   │       └── endpoints/      # API端点
-│   │           ├── auth.py     # 认证API
-│   │           ├── funds.py    # 基金API
-│   │           ├── analysis.py # 分析API
-│   │           └── sessions.py # 会话API
 │   ├── core/                   # 核心配置
-│   │   ├── config.py           # 应用配置
-│   │   ├── database.py         # 数据库连接
-│   │   ├── redis_client.py     # Redis客户端
-│   │   └── security.py         # 安全认证
 │   ├── models/                 # 数据库模型
-│   │   ├── user.py             # 用户模型
-│   │   ├── fund.py             # 基金模型
-│   │   ├── analysis.py         # 分析模型
-│   │   └── audit.py            # 审计模型
 │   ├── schemas/                # Pydantic模型
-│   │   ├── common.py           # 通用响应
-│   │   ├── auth.py             # 认证Schema
-│   │   ├── fund.py             # 基金Schema
-│   │   └── analysis.py         # 分析Schema
 │   ├── agents/                 # 智能体模块
-│   │   ├── base.py             # 智能体基类
-│   │   ├── fundamental.py      # 基本面分析师
-│   │   ├── technical.py        # 技术分析师
-│   │   ├── risk.py             # 风险分析师
-│   │   ├── cost.py             # 成本分析师
-│   │   ├── sentiment.py        # 情绪分析师
-│   │   ├── decision.py         # 决策智能体
-│   │   └── orchestrator.py     # 智能体编排器
 │   ├── data_sources/           # 数据源适配器
 │   ├── services/               # 业务服务
 │   └── main.py                 # 应用入口
-├── migrations/                 # 数据库迁移
-│   └── init_db.py              # 初始化脚本
+├── frontend/                   # 前端应用
+│   ├── app/                    # Nuxt应用目录
+│   │   ├── components/         # Vue组件
+│   │   ├── composables/        # 组合式函数
+│   │   ├── pages/              # 页面路由
+│   │   ├── services/           # API服务
+│   │   ├── stores/             # Pinia状态管理
+│   │   └── utils/              # 工具函数
+│   ├── public/                 # 静态资源
+│   ├── server/                 # Nuxt服务端
+│   ├── nuxt.config.ts          # Nuxt配置
+│   └── package.json            # 前端依赖
+├── database/                   # 数据库脚本
 ├── tests/                      # 测试模块
-├── requirements.txt            # 依赖列表
-├── .env.example                # 环境变量示例
+├── requirements.txt            # 后端依赖
 └── README.md                   # 项目说明
 ```
 
@@ -65,42 +60,50 @@ FundAI_Server/
 ### 1. 环境准备
 
 确保已安装以下软件：
-- Python 3.11+
+- Python 3.12+
+- Node.js 22+
 - PostgreSQL 15+
 - Redis 7.0+
 
-### 2. 安装依赖
+### 2. 后端设置
 
-```bash
-cd FundAI_Server
+```powershell
+# 创建虚拟环境
 python -m venv venv
-.\venv\Scripts\activate  # Windows
+.\venv\Scripts\activate
+
+# 安装依赖
 pip install -r requirements.txt
-```
 
-### 3. 配置环境变量
-
-```bash
+# 配置环境变量
 copy .env.example .env
 # 编辑 .env 文件，配置数据库连接等信息
-```
 
-### 4. 初始化数据库
+# 初始化数据库
+# 执行 database/init_db.sql
 
-```bash
-python -m migrations.init_db
-```
-
-### 5. 启动服务
-
-```bash
+# 启动后端服务
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 6. 访问API文档
+### 3. 前端设置
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+```powershell
+# 进入前端目录
+cd frontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+```
+
+### 4. 访问应用
+
+- 前端应用: http://localhost:3000
+- 后端API文档: http://localhost:8000/docs
+- 健康检查: http://localhost:8000/health
 
 ## API接口
 
@@ -139,32 +142,32 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | GET | /api/v1/sessions | 获取会话列表 |
 | GET | /api/v1/sessions/{session_id} | 获取会话详情 |
 
-## 测试账号
-
-- 普通用户: 手机号 `13800138000`, 密码 `password123`
-- 管理员: 手机号 `13900139000`, 密码 `admin123`
-
 ## 开发说明
 
-### 代码规范
+### 后端开发
 
-- 遵循PEP 8规范
-- 使用类型注解
-- 添加中文注释
+```powershell
+# 运行测试
+pytest
 
-### 数据库迁移
+# 代码格式化
+black app/
+isort app/
+```
 
-使用Alembic进行数据库迁移管理：
+### 前端开发
 
-```bash
-# 创建迁移
-alembic revision --autogenerate -m "描述"
+```powershell
+cd frontend
 
-# 执行迁移
-alembic upgrade head
+# 构建生产版本
+npm run build
 
-# 回滚迁移
-alembic downgrade -1
+# 预览生产版本
+npm run preview
+
+# 类型检查
+npm run typecheck
 ```
 
 ## License

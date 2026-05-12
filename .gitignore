@@ -1,3 +1,7 @@
+.claude/
+.github/
+.trae/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -63,3 +67,25 @@ migrations/versions/*.pyc
 # RAG 数据目录
 data/
 !data/.gitkeep
+
+# Node.js / Nuxt 前端
+node_modules/
+.nuxt/
+.output/
+.nitro/
+.cache/
+dist/
+
+# 前端环境变量
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# 前端日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 前端 IDE
+frontend/.idea/
+frontend/.vscode/
