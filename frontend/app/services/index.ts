@@ -16,23 +16,6 @@ export {
   type ApiError,
 } from './api'
 
-// 导出认证服务
-export {
-  sendVerificationCode,
-  login,
-  logout,
-  refreshToken,
-  getCurrentUser,
-  isAuthenticated,
-  authService,
-  type User,
-  type LoginParams,
-  type LoginResponse,
-  type RefreshTokenResponse,
-  type SendCodeParams,
-  type SendCodeResponse,
-} from './auth'
-
 // 导出基金服务
 export {
   searchFunds,
@@ -102,15 +85,33 @@ export {
   type FavoriteFund,
 } from './session'
 
+// 导出配置服务
+export {
+  getAllSettings,
+  updateAllSettings,
+  getLLMSettings,
+  updateLLMSettings,
+  getDatasourceSettings,
+  updateDatasourceSettings,
+  testLLMConnection,
+  settingsService,
+  type LLMSettings,
+  type DatasourceSettings,
+  type RAGSettings,
+  type AllSettings,
+  type LLMTestRequest,
+  type LLMTestResponse,
+} from './settings'
+
 /**
  * 服务实例统一导出
  * 便于在组件中直接使用
  */
 export const services = {
-  auth: authService,
   fund: fundService,
   analysis: analysisService,
   session: sessionService,
+  settings: settingsService,
 }
 
 export default services

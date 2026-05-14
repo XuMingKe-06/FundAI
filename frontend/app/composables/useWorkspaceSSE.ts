@@ -27,15 +27,10 @@ export function useWorkspaceSSE(options: UseWorkspaceSSEOptions) {
   const sessionStore = useSessionStore()
   const { connect: connectSSE, disconnect: disconnectSSE, on: onSSEEvent, markStreamEnded } = useSSE()
 
-  /* 连接分析流 */
+  /* 连接分析流（无需认证 token） */
   function connectToAnalysisStream(sessionId: string) {
     const baseUrl = '/api/v1'
-    /* 从 localStorage 获取 token */
-    const token = import.meta.client ? localStorage.getItem('token') : null
-    const streamUrl = token
-      ? `${baseUrl}/analysis/sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`
-      : `${baseUrl}/analysis/sessions/${sessionId}/stream`
-
+    const streamUrl = `${baseUrl}/analysis/sessions/${sessionId}/stream`
     connectSSE(streamUrl)
   }
 

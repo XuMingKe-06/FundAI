@@ -4,9 +4,12 @@ RAG (Retrieval-Augmented Generation) 服务模块
 """
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
+import logging
 
 from app.core.config import settings
 from app.services.vector_store_service import get_vector_store_service
+
+logger = logging.getLogger(__name__)
 
 
 class RAGService:
@@ -32,6 +35,26 @@ class RAGService:
         """
         self._vector_store = get_vector_store_service()
         self._default_top_k = settings.RAG_TOP_K
+        self._embedding_checked = False
+        self._embedding_configured = None
+    
+    def _is_embedding_configured(self) -> bool:
+        """
+        检查 Embedding 是否已配置
+
+        使用缓存避免重复检查配置。
+
+        Returns:
+            True 表示已配置，False 表示未配置
+        """
+        if not self._embedding_checked:
+            from app.core.settings_manager import get_settings_manager
+            settings_manager = get_settings_manager()
+            self._embedding_configured = settings_manager.is_embedding_configured()
+            self._embedding_checked = True
+            if not self._embedding_configured:
+                logger.info("RAG服务: Embedding 未配置，知识检索功能已禁用")
+        return self._embedding_configured
     
     def retrieve(
         self,
@@ -53,6 +76,10 @@ class RAGService:
             检索结果列表，格式为:
             [{"content": str, "score": float, "metadata": dict, "document_id": str}, ...]
         """
+        # 检查 embedding 是否已配置
+        if not self._is_embedding_configured():
+            return []
+        
         if not query or not query.strip():
             return []
         
@@ -306,6 +333,17 @@ class RAGService:
                 results[query] = []
         
         return results
+
+    def reset_config_cache(self) -> None:
+        """
+        重置配置缓存
+
+        当用户更新 Embedding 配置后调用此方法，
+        使 RAG 服务能够重新检测配置状态。
+        """
+        self._embedding_checked = False
+        self._embedding_configured = None
+        logger.info("RAG服务: 配置缓存已重置")
 
 
 @lru_cache()

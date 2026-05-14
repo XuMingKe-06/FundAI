@@ -7,7 +7,7 @@ const pinia = createPinia()
 export default pinia
 
 /* 导出所有 store */
-export * from './auth'
 export * from './session'
 export * from './analysis'
 export * from './agent'
+export * from './settings'

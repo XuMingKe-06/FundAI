@@ -14,30 +14,12 @@
           <span class="logo-text">FundAI</span>
         </div>
         <div class="nav-right">
+          <!-- 工作台按钮 -->
           <button class="btn-workspace" @click="navigateToWorkspacePage">工作台</button>
-          <!-- 未登录状态显示登录按钮 -->
-          <button v-if="!authStore.isLoggedIn" class="btn-login" @click="showLoginModal = true">登录</button>
-          <!-- 已登录状态显示个人用户按钮 -->
-          <div v-else class="user-menu">
-            <button class="btn-user" @click="showUserMenu = !showUserMenu">
-              <svg class="user-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-              </svg>
-              <span class="user-phone">{{ formatPhone(authStore.user?.phone) }}</span>
-            </button>
-            <!-- 下拉菜单 -->
-            <div class="user-dropdown" :class="{ active: showUserMenu }">
-              <button class="dropdown-item" @click="handleLogout">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                  <polyline points="16 17 21 12 16 7"></polyline>
-                  <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-                退出登录
-              </button>
-            </div>
-          </div>
+          <!-- 设置按钮，跳转到设置页面 -->
+          <NuxtLink to="/settings" class="btn-settings">
+            设置
+          </NuxtLink>
         </div>
       </div>
     </nav>
@@ -277,7 +259,7 @@
       </div>
     </section>
 
-<!-- FAQ区域 -->
+    <!-- FAQ区域 -->
     <section class="faq-section scroll-section" data-section="faq">
       <div class="section-container">
         <h2 class="section-title">常见问题</h2>
@@ -339,46 +321,6 @@
       </div>
     </footer>
 
-    <!-- 登录弹窗 -->
-    <div class="modal" :class="{ active: showLoginModal }">
-      <div class="modal-content">
-        <span class="modal-close" @click="showLoginModal = false">&times;</span>
-        <h2>登录 / 注册</h2>
-        <p class="login-tip">新用户在登录时会自动创建账号</p>
-        <form class="login-form" @submit.prevent="handleLogin">
-          <div class="form-group">
-            <label>手机号</label>
-            <input
-              v-model="loginPhone"
-              type="tel"
-              placeholder="请输入手机号"
-              maxlength="11"
-            >
-          </div>
-          <div class="form-group">
-            <label>验证码</label>
-            <div class="verification-code-group">
-              <input
-                v-model="loginCode"
-                type="text"
-                placeholder="请输入验证码"
-                maxlength="6"
-              >
-              <button
-                type="button"
-                class="btn-send-code"
-                :disabled="loginCountdown > 0"
-                @click="sendLoginCode"
-              >
-                {{ loginCountdown > 0 ? `${loginCountdown}秒后重试` : '发送验证码' }}
-              </button>
-            </div>
-          </div>
-          <button type="submit" class="btn-primary btn-full">登录 / 注册</button>
-        </form>
-      </div>
-    </div>
-
     <!-- 区域指示器 -->
     <div class="section-indicator">
       <div
@@ -395,14 +337,13 @@
 </template>
 
 <script setup lang="ts">
+/* 导入基金搜索服务 */
 import { useFundService, type FundSearchItem } from '~/composables/useFundService'
-import { useAuthStore } from '~/stores/auth'
 
 const router = useRouter()
 
-/* 导入基金服务和认证存储 */
+/* 基金搜索服务实例 */
 const fundService = useFundService()
-const authStore = useAuthStore()
 
 /* 搜索相关状态 */
 const fundInput = ref('')
@@ -413,20 +354,7 @@ const suggestionsStyle = ref<Record<string, string>>({})
 /* 搜索结果列表 - 从 API 获取 */
 const suggestionItems = ref<FundSearchItem[]>([])
 
-/* 登录弹窗相关状态 */
-const showLoginModal = ref(false)
-const loginPhone = ref('')
-const loginCode = ref('')
-const loginCountdown = ref(0)
-let loginCountdownTimer: ReturnType<typeof setInterval> | null = null
-
-/* 用户菜单相关状态 */
-const showUserMenu = ref(false)
-
-/* 待跳转的基金代码 - 用于登录后跳转 */
-const pendingFundCode = ref<string | null>(null)
-
-/* 区域配置 */
+/* 区域配置 - 用于滚动吸附导航 */
 const sections = [
   { key: 'hero', name: '首页' },
   { key: 'process', name: '三步完成基金分析决策' },
@@ -459,7 +387,7 @@ function onFundInput() {
   }
 }
 
-/* 更新搜索建议位置 */
+/* 更新搜索建议下拉框位置，使其与输入框对齐 */
 function updateSuggestionsPosition() {
   nextTick(() => {
     const searchBar = document.querySelector('.search-bar') as HTMLElement
@@ -477,25 +405,15 @@ function updateSuggestionsPosition() {
   })
 }
 
-/* 选择基金 */
+/* 选择基金 - 填入输入框后直接跳转到工作台 */
 function selectFund(code: string, name: string) {
   fundInput.value = code + ' - ' + name
   showSuggestions.value = false
-  /* 选择后直接跳转到工作台 */
   navigateToWorkspace(code)
 }
 
 /* 跳转到工作台并发起分析 */
 function navigateToWorkspace(fundCode: string) {
-  /* 检查登录状态 */
-  if (!authStore.isLoggedIn) {
-    /* 未登录，显示登录弹窗并记录待跳转的基金代码 */
-    pendingFundCode.value = fundCode
-    showLoginModal.value = true
-    return
-  }
-
-  /* 已登录，跳转到工作台 */
   router.push({
     path: '/workspace',
     query: {
@@ -505,20 +423,12 @@ function navigateToWorkspace(fundCode: string) {
   })
 }
 
-/* 跳转到工作台页面 */
+/* 跳转到工作台页面（不带基金参数） */
 function navigateToWorkspacePage() {
-  /* 检查登录状态 */
-  if (!authStore.isLoggedIn) {
-    /* 未登录，显示登录弹窗 */
-    showLoginModal.value = true
-    return
-  }
-
-  /* 已登录，跳转到工作台 */
   router.push('/workspace')
 }
 
-/* 开始分析 - 跳转到工作台 */
+/* 开始分析 - 验证输入后跳转到工作台 */
 function startAnalysis() {
   const inputValue = fundInput.value.trim()
   if (!inputValue) {
@@ -538,106 +448,7 @@ function startAnalysis() {
   navigateToWorkspace(fundCode)
 }
 
-/* 发送登录验证码 */
-async function sendLoginCode() {
-  const phone = loginPhone.value.trim()
-  if (!phone) {
-    alert('请输入手机号')
-    return
-  }
-  if (!/^1[3-9]\d{9}$/.test(phone)) {
-    alert('请输入正确的手机号')
-    return
-  }
-
-  /* 调用 authStore 发送验证码 */
-  const success = await authStore.sendVerificationCode(phone)
-  if (success) {
-    /* 开始倒计时 */
-    loginCountdown.value = 60
-    loginCountdownTimer = setInterval(() => {
-      loginCountdown.value--
-      if (loginCountdown.value <= 0) {
-        if (loginCountdownTimer) clearInterval(loginCountdownTimer)
-      }
-    }, 1000)
-  } else {
-    /* 显示错误信息 */
-    alert(authStore.sendCodeError.value || '发送验证码失败')
-  }
-}
-
-/* 登录处理 */
-async function handleLogin() {
-  const phone = loginPhone.value.trim()
-  const code = loginCode.value.trim()
-
-  if (!phone) {
-    alert('请输入手机号')
-    return
-  }
-  if (!/^1[3-9]\d{9}$/.test(phone)) {
-    alert('请输入正确的手机号')
-    return
-  }
-  if (!code) {
-    alert('请输入验证码')
-    return
-  }
-  if (!/^\d{6}$/.test(code)) {
-    alert('请输入6位数字验证码')
-    return
-  }
-
-  /* 调用 authStore 登录 */
-  const result = await authStore.login(phone, code)
-  if (result.success) {
-    alert('登录成功')
-    showLoginModal.value = false
-
-    /* 如果有待跳转的基金代码，跳转到工作台 */
-    if (pendingFundCode.value) {
-      const fundCode = pendingFundCode.value
-      pendingFundCode.value = null
-      router.push({
-        path: '/workspace',
-        query: {
-          fund: fundCode,
-          preference: riskPreference.value
-        }
-      })
-    }
-  } else {
-    /* 显示错误信息 */
-    const errorMsg = result.error instanceof Error ? result.error.message : '登录失败'
-    alert(errorMsg)
-  }
-}
-
-/* 格式化手机号显示（隐藏中间4位） */
-function formatPhone(phone?: string): string {
-  if (!phone) return ''
-  return phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
-}
-
-/* 退出登录 */
-async function handleLogout() {
-  await authStore.logout()
-  showUserMenu.value = false
-}
-
-/* 滚动到指定区域 - 使用 composable 提供的方法 */
-/* scrollToSection 已由 useScrollSnap 提供 */
-
-/* 点击弹窗外部关闭 */
-function handleModalOutsideClick(event: MouseEvent) {
-  const modal = document.querySelector('.modal')
-  if (event.target === modal) {
-    showLoginModal.value = false
-  }
-}
-
-/* 点击搜索建议外部关闭 */
+/* 点击搜索建议外部关闭下拉框 */
 function handleClickOutside(event: MouseEvent) {
   const input = document.querySelector('.search-input')
   const suggestions = document.querySelector('.search-suggestions')
@@ -646,39 +457,19 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
-/* 点击用户菜单外部关闭 */
-function handleUserMenuOutsideClick(event: MouseEvent) {
-  const userMenu = document.querySelector('.user-menu')
-  if (userMenu && !userMenu.contains(event.target as Node)) {
-    showUserMenu.value = false
-  }
-}
-
-onMounted(async () => {
-  document.addEventListener('click', handleModalOutsideClick)
+onMounted(() => {
+  /* 注册全局点击事件监听 */
   document.addEventListener('click', handleClickOutside)
-  document.addEventListener('click', handleUserMenuOutsideClick)
   /* 初始化滚动吸附功能 */
   initScrollSnap()
-  /* 恢复登录状态（含 token 过期检查和自动刷新） */
-  await authStore.restoreAuth()
-  
-  /* 检查URL参数，如果是 login=1 则弹出登录窗口 */
-  const route = useRoute()
-  if (route.query.login === '1') {
-    showLoginModal.value = true
-  }
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleModalOutsideClick)
+  /* 移除全局点击事件监听 */
   document.removeEventListener('click', handleClickOutside)
-  document.removeEventListener('click', handleUserMenuOutsideClick)
   /* 销毁滚动吸附功能 */
   destroyScrollSnap()
-  /* 清理定时器 */
-  if (loginCountdownTimer) clearInterval(loginCountdownTimer)
-  /* 清理 fundService 的定时器 */
+  /* 清理基金搜索服务的定时器 */
   fundService.cleanup()
 })
 </script>

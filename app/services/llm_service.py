@@ -1,15 +1,13 @@
 """
 LLM 服务模块
-提供统一的大模型调用接口，支持阿里云百炼和 DeepSeek 切换
+提供统一的大模型调用接口，配置从前端设置页面管理
 """
 import asyncio
-import os
+import logging
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from functools import lru_cache
-import logging
 
 from openai import OpenAI, AsyncOpenAI
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +16,7 @@ class LLMService:
     """
     LLM 服务类
     
-    统一封装大模型调用，基于阿里云百炼 API
+    统一封装大模型调用，配置从 data/config.json 读取
     """
     
     _instance: Optional["LLMService"] = None
@@ -38,25 +36,28 @@ class LLMService:
         初始化 LLM 服务
         延迟加载客户端，不在初始化时创建连接
         """
-        self._provider = settings.LLM_PROVIDER
         self._model: Optional[str] = None
         self._api_key: Optional[str] = None
         self._base_url: Optional[str] = None
         self._initialized = False
     
+    def _get_settings_manager(self):
+        """获取配置管理器（延迟导入避免循环依赖）"""
+        from app.core.settings_manager import get_settings_manager
+        return get_settings_manager()
+    
     def _initialize(self):
         """
         延迟初始化客户端
-        每次调用时检测 .env 配置变更，自动重建客户端
+        每次调用时检测配置变更，自动重建客户端
         """
-        # 强制重载 .env 文件，使模型切换无需重启服务
-        self._reload_env()
+        sm = self._get_settings_manager()
+        
+        current_base_url = sm.get("llm.api_base_url", "")
+        current_key = sm.get("llm.api_key", "")
+        current_model = sm.get("llm.model", "")
 
-        current_model = os.getenv("ALIYUN_LLM_MODEL") or settings.ALIYUN_LLM_MODEL
-        current_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
-        current_base = os.getenv("ALIYUN_LLM_API_BASE") or settings.ALIYUN_LLM_API_BASE
-
-        if self._initialized and self._model == current_model and self._api_key == current_key and self._base_url == current_base:
+        if self._initialized and self._model == current_model and self._api_key == current_key and self._base_url == current_base_url:
             return
 
         if self._initialized:
@@ -64,12 +65,16 @@ class LLMService:
 
         self._model = current_model
         self._api_key = current_key
-        self._base_url = current_base
+        self._base_url = current_base_url
 
         if not self._api_key:
             raise ValueError(
-                "请配置阿里云百炼 API Key：设置系统环境变量 DASHSCOPE_API_KEY "
-                "或在 .env 文件中配置 ALIYUN_LLM_API_KEY"
+                "请在前端设置页面配置 LLM API Key"
+            )
+        
+        if not self._base_url:
+            raise ValueError(
+                "请在前端设置页面配置 LLM API Base URL"
             )
 
         self._client = OpenAI(
@@ -82,19 +87,7 @@ class LLMService:
         )
 
         self._initialized = True
-        logger.info(f"LLM 服务初始化完成: provider={self._provider}, model={self._model}")
-
-    def _reload_env(self):
-        """重新加载 .env 文件，使模型切换等配置变更即时生效"""
-        try:
-            from dotenv import load_dotenv
-            import os as _os
-            # 从当前文件向上查找项目根目录下的 .env
-            env_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), ".env")
-            if _os.path.exists(env_path):
-                load_dotenv(env_path, override=True)
-        except Exception:
-            pass  # dotenv 加载失败时使用已缓存的配置
+        logger.info(f"LLM 服务初始化完成: base_url={self._base_url}, model={self._model}")
     
     def chat(
         self,
@@ -119,12 +112,10 @@ class LLMService:
         """
         self._initialize()
         
-        # 验证 prompt 不为空，阿里云 API 要求 content 字段必须有值
         if not prompt or not prompt.strip():
             raise ValueError("prompt 参数不能为空")
         
         messages = []
-        # 只有当 system_prompt 非空时才添加 system 消息
         if system_prompt and system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt.strip()})
         messages.append({"role": "user", "content": prompt.strip()})
@@ -162,12 +153,10 @@ class LLMService:
         """
         self._initialize()
         
-        # 验证 prompt 不为空，阿里云 API 要求 content 字段必须有值
         if not prompt or not prompt.strip():
             raise ValueError("prompt 参数不能为空")
         
         messages = []
-        # 只有当 system_prompt 非空时才添加 system 消息
         if system_prompt and system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt.strip()})
         messages.append({"role": "user", "content": prompt.strip()})
@@ -207,12 +196,10 @@ class LLMService:
         """
         self._initialize()
         
-        # 验证 prompt 不为空，阿里云 API 要求 content 字段必须有值
         if not prompt or not prompt.strip():
             raise ValueError("prompt 参数不能为空")
         
         messages = []
-        # 只有当 system_prompt 非空时才添加 system 消息
         if system_prompt and system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt.strip()})
         messages.append({"role": "user", "content": prompt.strip()})
@@ -263,12 +250,9 @@ class LLMService:
         """
         self._initialize()
 
-        # 构建消息列表
         if messages:
-            # 使用外部提供的消息历史
             message_list = messages
         else:
-            # 验证 prompt 不为空
             if not prompt or not prompt.strip():
                 raise ValueError("prompt 参数不能为空")
             message_list: List[Dict[str, Any]] = []
@@ -276,7 +260,6 @@ class LLMService:
                 message_list.append({"role": "system", "content": system_prompt.strip()})
             message_list.append({"role": "user", "content": prompt.strip()})
 
-        # 发送开始思考事件
         yield {"type": "thinking_start"}
 
         response = await self._async_client.chat.completions.create(
@@ -289,36 +272,30 @@ class LLMService:
             **kwargs
         )
 
-        # 收集内容、推理和工具调用
         content_buffer: List[str] = []
         reasoning_buffer: List[str] = []
-        tool_calls_map: Dict[int, Dict[str, Any]] = {}  # index -> {id, name, args_str}
+        tool_calls_map: Dict[int, Dict[str, Any]] = {}
 
         async for chunk in response:
             delta = chunk.choices[0].delta if chunk.choices else None
             if not delta:
                 continue
 
-            # 处理深度思考内容
             reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
             if reasoning:
                 reasoning_buffer.append(reasoning)
-                # 将大块思考内容拆分为小片段，实现平滑的流式输出效果
-                # DeepSeek-R1 通过 DashScope 可能一次性返回大量思考内容
                 CHUNK_SIZE = 80
                 if len(reasoning) > CHUNK_SIZE:
                     for i in range(0, len(reasoning), CHUNK_SIZE):
                         piece = reasoning[i:i + CHUNK_SIZE]
                         yield {"type": "reasoning_chunk", "content": piece}
                         if i + CHUNK_SIZE < len(reasoning):
-                            await asyncio.sleep(0.02)  # 片段间隔，给 SSE 消费时间
+                            await asyncio.sleep(0.02)
                 else:
                     yield {"type": "reasoning_chunk", "content": reasoning}
 
-            # 处理普通内容
             if delta.content:
                 content_buffer.append(delta.content)
-                # 同样拆分大的内容块，确保流式输出的平滑性
                 CHUNK_SIZE = 80
                 if len(delta.content) > CHUNK_SIZE:
                     for i in range(0, len(delta.content), CHUNK_SIZE):
@@ -329,7 +306,6 @@ class LLMService:
                 else:
                     yield {"type": "content_chunk", "content": delta.content}
 
-            # 收集工具调用（流式分片）
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = getattr(tc, "index", 0)
@@ -342,7 +318,6 @@ class LLMService:
                     if tc.function and tc.function.arguments:
                         tool_calls_map[idx]["args_str"] += tc.function.arguments
 
-        # 流式结束后，如果有工具调用则推送 tool_calls 事件
         if tool_calls_map:
             tool_calls_list = [
                 {
@@ -354,7 +329,6 @@ class LLMService:
             ]
             yield {"type": "tool_calls", "tool_calls": tool_calls_list}
         else:
-            # 没有工具调用，直接完成
             final_content = "".join(content_buffer)
             yield {"type": "complete", "content": final_content}
 
@@ -441,7 +415,7 @@ class LLMService:
         
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+                yield chunk.choices[0].content
     
     def get_client(self) -> OpenAI:
         """
@@ -475,14 +449,29 @@ class LLMService:
         self._initialize()
         return self._model
     
-    def get_provider(self) -> str:
+    def get_base_url(self) -> str:
         """
-        获取当前服务提供商
+        获取当前使用的 API Base URL
         
         Returns:
-            服务提供商名称（aliyun）
+            API Base URL 字符串
         """
-        return self._provider
+        self._initialize()
+        return self._base_url
+    
+    def get_embedding_config(self) -> Dict[str, str]:
+        """
+        获取 Embedding 配置
+        
+        Returns:
+            包含 api_base_url, api_key, model 的字典
+        """
+        sm = self._get_settings_manager()
+        return {
+            "api_base_url": sm.get("llm.embedding_api_base_url", ""),
+            "api_key": sm.get("llm.embedding_api_key", ""),
+            "model": sm.get("llm.embedding_model", ""),
+        }
 
 
 @lru_cache()

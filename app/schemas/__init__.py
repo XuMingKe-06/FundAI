@@ -2,15 +2,6 @@
 Schema模块初始化
 """
 from app.schemas.common import ApiResponse, PaginatedData, PaginatedResponse, ErrorResponse
-from app.schemas.auth import (
-    SendCodeRequest,
-    SendCodeResponse,
-    LoginRequest,
-    LoginResponse,
-    RefreshTokenRequest,
-    RefreshTokenResponse,
-    UserInfo
-)
 from app.schemas.fund import (
     FundSearchRequest,
     FundListItem,
@@ -41,6 +32,14 @@ from app.schemas.analysis import (
     AgentOutputInfo,
     SessionDetail
 )
+from app.schemas.settings import (
+    LLMSettings,
+    DatasourceSettings,
+    RAGSettings,
+    AllSettings,
+    LLMTestRequest,
+    LLMTestResponse
+)
 
 __all__ = [
     # Common
@@ -48,14 +47,6 @@ __all__ = [
     "PaginatedData",
     "PaginatedResponse",
     "ErrorResponse",
-    # Auth
-    "SendCodeRequest",
-    "SendCodeResponse",
-    "LoginRequest",
-    "LoginResponse",
-    "RefreshTokenRequest",
-    "RefreshTokenResponse",
-    "UserInfo",
     # Fund
     "FundSearchRequest",
     "FundListItem",
@@ -83,5 +74,12 @@ __all__ = [
     "AnalysisReport",
     "SessionListItem",
     "AgentOutputInfo",
-    "SessionDetail"
+    "SessionDetail",
+    # Settings
+    "LLMSettings",
+    "DatasourceSettings",
+    "RAGSettings",
+    "AllSettings",
+    "LLMTestRequest",
+    "LLMTestResponse",
 ]

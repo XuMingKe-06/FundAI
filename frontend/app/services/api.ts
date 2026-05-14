@@ -5,6 +5,11 @@ function snakeToCamel(str: string): string {
   return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
 }
 
+/* 将 camelCase 字符串转换为 snake_case */
+function camelToSnake(str: string): string {
+  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+}
+
 /* 递归转换对象中的 snake_case 键为 camelCase */
 function transformKeys<T>(obj: T): T {
   if (obj === null || obj === undefined) {
@@ -20,6 +25,28 @@ function transformKeys<T>(obj: T): T {
     for (const key of Object.keys(obj as Record<string, unknown>)) {
       const camelKey = snakeToCamel(key)
       result[camelKey] = transformKeys((obj as Record<string, unknown>)[key])
+    }
+    return result as T
+  }
+
+  return obj
+}
+
+/* 递归转换对象中的 camelCase 键为 snake_case */
+function transformKeysToSnake<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => transformKeysToSnake(item)) as T
+  }
+
+  if (typeof obj === 'object' && obj.constructor === Object) {
+    const result: Record<string, unknown> = {}
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      const snakeKey = camelToSnake(key)
+      result[snakeKey] = transformKeysToSnake((obj as Record<string, unknown>)[key])
     }
     return result as T
   }
@@ -52,24 +79,23 @@ const createApiClient = (): AxiosInstance => {
     },
   })
 
-  /* 请求拦截器 - 添加认证 token 和调试日志 */
+  /* 请求拦截器 - 将 camelCase 转换为 snake_case + 记录请求日志 */
   client.interceptors.request.use(
     (config) => {
-      /* 输出请求日志 */
+      /* 将请求数据中的 camelCase 键名转换为 snake_case */
+      if (config.data && typeof config.data === 'object') {
+        config.data = transformKeysToSnake(config.data)
+      }
+      /* 将请求参数中的 camelCase 键名转换为 snake_case */
+      if (config.params && typeof config.params === 'object') {
+        config.params = transformKeysToSnake(config.params)
+      }
       console.log(`[API Request] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`)
       if (config.params) {
         console.log('[API Request Params]', config.params)
       }
       if (config.data) {
         console.log('[API Request Data]', config.data)
-      }
-
-      /* 从 localStorage 获取 token */
-      if (import.meta.client) {
-        const token = localStorage.getItem('token')
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`
-        }
       }
       return config
     },
@@ -79,17 +105,18 @@ const createApiClient = (): AxiosInstance => {
     }
   )
 
-  /* 响应拦截器 - 处理键名转换、错误和 token 刷新 */
+  /* 响应拦截器 - 键名转换 + 错误日志 */
   client.interceptors.response.use(
     (response) => {
       /* 输出响应日志 */
       console.log(`[API Response] ${response.status} ${response.config.baseURL}${response.config.url}`)
       console.log('[API Response Data]', response.data)
 
+      /* 将响应数据中的 snake_case 键名转换为 camelCase */
       response.data = transformKeys(response.data)
       return response
     },
-    async (error) => {
+    (error) => {
       /* 输出错误日志 */
       if (error.response) {
         console.log(`[API Error] ${error.response.status} ${error.config?.baseURL}${error.config?.url}`)
@@ -100,60 +127,6 @@ const createApiClient = (): AxiosInstance => {
         console.log('[API Error] Message:', error.message)
       } else {
         console.log('[API Error] Request setup error:', error.message)
-      }
-
-      const originalRequest = error.config
-
-      /* 如果是 401 错误且未尝试过刷新 token */
-      if (error.response?.status === 401 && !originalRequest._retry) {
-        originalRequest._retry = true
-
-        /* 检查是否是公开接口（不需要认证的接口） */
-        const publicEndpoints = [
-          '/auth/send-code',
-          '/auth/login',
-          '/auth/refresh',
-          '/auth/check-token',
-          '/funds/search',
-        ]
-        const isPublicEndpoint = publicEndpoints.some(endpoint => 
-          originalRequest.url?.includes(endpoint)
-        )
-
-        /* 如果是公开接口，直接返回错误，不尝试刷新 token */
-        if (isPublicEndpoint) {
-          console.log('[API] Public endpoint returned 401, not retrying')
-          return Promise.reject(error)
-        }
-
-        try {
-          /* 尝试刷新 token */
-          if (import.meta.client) {
-            const refreshToken = localStorage.getItem('refreshToken')
-            if (refreshToken) {
-              console.log('[API] Attempting to refresh token...')
-              const response = await axios.post('/api/v1/auth/refresh', {
-                refresh_token: refreshToken,
-              }, {
-                timeout: 10000, /* 刷新token请求超时时间设为10秒 */
-              })
-              const { accessToken } = transformKeys(response.data.data)
-              localStorage.setItem('token', accessToken)
-              originalRequest.headers.Authorization = `Bearer ${accessToken}`
-              console.log('[API] Token refresh successful, retrying request...')
-              return client(originalRequest)
-            }
-          }
-        } catch (refreshError) {
-          /* 刷新失败，清除登录状态 */
-          console.log('[API Error] Token refresh failed:', refreshError)
-          if (import.meta.client) {
-            localStorage.removeItem('token')
-            localStorage.removeItem('refreshToken')
-            localStorage.removeItem('user')
-            /* 不自动跳转，让页面自己处理未登录状态 */
-          }
-        }
       }
 
       return Promise.reject(error)

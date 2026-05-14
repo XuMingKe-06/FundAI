@@ -1,6 +1,7 @@
 .claude/
 .github/
 .trae/
+log/
 
 # Python
 __pycache__/
@@ -67,6 +68,7 @@ migrations/versions/*.pyc
 # RAG 数据目录
 data/
 !data/.gitkeep
+data/config.json
 
 # Node.js / Nuxt 前端
 node_modules/

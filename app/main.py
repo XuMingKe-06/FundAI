@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import async_engine, Base
-from app.core.redis_client import redis_client
+from app.core.cache import cache_client
 from app.api import api_v1_router
 
 
@@ -25,10 +25,10 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
 
     yield
-    
+
     # 关闭时
     print(f"关闭 {settings.APP_NAME}")
-    await redis_client.close()
+    await cache_client.close()
 
 
 # 创建FastAPI应用
@@ -58,14 +58,14 @@ async def add_request_context(request: Request, call_next):
     """添加请求上下文"""
     request_id = str(uuid.uuid4())
     start_time = time.time()
-    
+
     # 处理请求
     response = await call_next(request)
-    
+
     # 添加响应头
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Response-Time"] = f"{(time.time() - start_time) * 1000:.2f}ms"
-    
+
     return response
 
 

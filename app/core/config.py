@@ -1,5 +1,8 @@
 """
 应用配置模块
+
+基于 pydantic-settings 的配置管理，支持 .env 文件和环境变量覆盖。
+通过 lru_cache 实现配置单例，避免重复解析。
 """
 from typing import List
 from pydantic_settings import BaseSettings
@@ -8,59 +11,43 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     """应用配置类"""
-    
-    # 应用基础配置
+
+    # ==================== 应用基础配置 ====================
     APP_NAME: str = "FundAI"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
-    
-    # 数据库配置
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/fund_analysis"
-    DATABASE_SYNC_URL: str = "postgresql://postgres:postgres@localhost:5432/fund_analysis"
-    
-    # Redis配置
-    REDIS_URL: str = "redis://localhost:6379/0"
-    
-    # JWT配置
-    JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
-    # LLM配置
-    # 模型服务提供商：aliyun（阿里云百炼）
-    LLM_PROVIDER: str = "aliyun"
-    
-    # 阿里云百炼配置
-    # API Key 优先读取系统环境变量 DASHSCOPE_API_KEY
-    ALIYUN_LLM_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    ALIYUN_LLM_MODEL: str = "qwen3-vl-235b-a22b-thinking"
-    ALIYUN_EMBEDDING_MODEL: str = "text-embedding-v3"
-    
-    # 数据源配置
+
+    # ==================== 数据目录配置 ====================
+    # 数据根目录，SQLite 数据库、缓存、配置文件均在此目录下
+    DATA_DIR: str = "./data"
+    # 缓存目录，用于存放数据源缓存等临时文件
+    CACHE_DIR: str = "./data/cache"
+    # 应用配置文件路径（JSON 格式）
+    CONFIG_FILE: str = "./data/config.json"
+
+    # 数据库配置（SQLite + aiosqlite 异步驱动）
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/fundai.db"
+
+    # ==================== 数据源配置 ====================
     TUSHARE_TOKEN: str = ""
-    
-    # 短信服务配置
-    ALIYUN_ACCESS_KEY_ID: str = ""
-    ALIYUN_ACCESS_KEY_SECRET: str = ""
-    ALIYUN_SMS_SIGN_NAME: str = "FundAI"
-    ALIYUN_SMS_TEMPLATE_CODE: str = ""
-    
-    # CORS配置
+
+    # ==================== CORS 配置 ====================
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
-    
-    # 限流配置
-    RATE_LIMIT_REQUESTS: int = 100
-    RATE_LIMIT_PERIOD: int = 60
-    
-    # RAG 配置
+
+    # ==================== RAG 配置 ====================
+    # ChromaDB 向量数据库持久化目录
     CHROMA_PERSIST_DIR: str = "./data/chroma"
+    # 本地 Embedding 模型名称（EMBEDDING_MODE 为 local 时生效）
     EMBEDDING_MODEL_NAME: str = ""
-    EMBEDDING_MODE: str = "aliyun"  # "local" 使用本地模型, "api" 使用 OpenAI API, "aliyun" 使用阿里云
+    # Embedding 模式：local 使用本地模型，api 使用远程 API
+    EMBEDDING_MODE: str = "api"
+    # RAG 检索返回的文档数量
     RAG_TOP_K: int = 5
+    # 文档分块大小（字符数）
     RAG_CHUNK_SIZE: int = 500
+    # 文档分块重叠大小（字符数）
     RAG_CHUNK_OVERLAP: int = 50
-    
+
     class Config:
         env_file = ".env"
         case_sensitive = True

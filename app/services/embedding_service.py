@@ -1,21 +1,60 @@
 """
 Embedding 服务模块
 提供文本向量化功能，支持中文文本
-支持三种模式：本地模型模式、OpenAI API 模式、阿里云 API 模式
+支持两种模式：本地模型模式、远程 API 模式
+配置从前端设置页面管理
 """
-import os
 from typing import List, Optional
 from functools import lru_cache
-from app.core.config import settings
+import re
+
+
+# 不支持的模型模式（rerank 模型等）
+UNSUPPORTED_MODEL_PATTERNS = [
+    r'rerank',  # 重排序模型
+    r'rank',    # 排序模型
+]
+
+# 推荐的 Embedding 模型列表
+RECOMMENDED_EMBEDDING_MODELS = [
+    'text-embedding-v4',
+    'text-embedding-v3',
+    'text-embedding-v2',
+    'text-embedding-v1',
+]
+
+
+def is_valid_embedding_model(model_name: str) -> tuple[bool, str]:
+    """
+    验证模型名称是否为有效的 Embedding 模型
+    
+    Args:
+        model_name: 模型名称
+        
+    Returns:
+        (是否有效, 错误信息)
+    """
+    if not model_name:
+        return False, "请在设置页面配置 Embedding 模型名称"
+    
+    model_lower = model_name.lower()
+    
+    for pattern in UNSUPPORTED_MODEL_PATTERNS:
+        if re.search(pattern, model_lower):
+            return False, (
+                f"模型 '{model_name}' 是重排序模型，不支持文本向量化。"
+                f"请使用 Embedding 模型，推荐: {', '.join(RECOMMENDED_EMBEDDING_MODELS)}"
+            )
+    
+    return True, ""
 
 
 class EmbeddingService:
     """
     Embedding 服务类
-    支持三种模式：
+    支持两种模式：
     - local: 使用 sentence-transformers 本地模型
-    - api: 使用 OpenAI API
-    - aliyun: 使用阿里云大模型 API
+    - api: 使用远程 API（OpenAI 兼容接口）
     """
     
     _instance: Optional["EmbeddingService"] = None
@@ -35,9 +74,25 @@ class EmbeddingService:
         初始化 Embedding 服务
         模型延迟加载，不在初始化时加载
         """
-        self._model_name = settings.EMBEDDING_MODEL_NAME
-        self._mode = settings.EMBEDDING_MODE
+        self._model_name: Optional[str] = None
+        self._api_key: Optional[str] = None
+        self._api_base_url: Optional[str] = None
+        self._mode: Optional[str] = None
         self._cache: dict = {}
+        self._initialized = False
+    
+    def _get_settings_manager(self):
+        """获取配置管理器（延迟导入避免循环依赖）"""
+        from app.core.settings_manager import get_settings_manager
+        return get_settings_manager()
+    
+    def _load_config(self):
+        """从配置管理器加载配置"""
+        sm = self._get_settings_manager()
+        self._api_base_url = sm.get("llm.embedding_api_base_url", "")
+        self._api_key = sm.get("llm.embedding_api_key", "")
+        self._model_name = sm.get("llm.embedding_model", "")
+        self._mode = sm.get("rag.embedding_mode", "api")
     
     def _load_model(self):
         """
@@ -46,10 +101,10 @@ class EmbeddingService:
         """
         if self._model is not None:
             return
+        
+        self._load_config()
             
-        if self._mode == "aliyun":
-            self._load_aliyun_model()
-        elif self._mode == "api":
+        if self._mode == "api":
             self._load_api_model()
         else:
             self._load_local_model()
@@ -58,52 +113,37 @@ class EmbeddingService:
         """
         加载本地 sentence-transformers 模型
         """
+        if not self._model_name:
+            raise ValueError("请在设置页面配置 Embedding 模型名称")
+        
         from sentence_transformers import SentenceTransformer
         self._model = SentenceTransformer(self._model_name)
         self._dimension = self._model.get_sentence_embedding_dimension()
     
     def _load_api_model(self):
         """
-        加载 OpenAI API 模型
-        使用 OpenAI SDK，调用阿里云百炼兼容接口
+        加载远程 API 模型
+        使用 OpenAI SDK，支持 OpenAI 兼容接口
         """
+        if not self._api_key:
+            raise ValueError("请在设置页面配置 Embedding API Key")
+        
+        if not self._api_base_url:
+            raise ValueError("请在设置页面配置 Embedding API Base URL")
+        
+        if not self._model_name:
+            raise ValueError("请在设置页面配置 Embedding 模型名称")
+        
+        # 验证模型是否为有效的 Embedding 模型
+        is_valid, error_msg = is_valid_embedding_model(self._model_name)
+        if not is_valid:
+            raise ValueError(error_msg)
+        
         from openai import OpenAI
         
-        api_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
-        if not api_key:
-            raise ValueError(
-                "请配置阿里云百炼 API Key：设置系统环境变量 DASHSCOPE_API_KEY "
-                "或在 .env 文件中配置 ALIYUN_LLM_API_KEY"
-            )
-        
         self._model = OpenAI(
-            api_key=api_key,
-            base_url=settings.ALIYUN_LLM_API_BASE
-        )
-        self._dimension = 1024
-    
-    def _load_aliyun_model(self):
-        """
-        加载阿里云大模型 embedding
-        使用 OpenAI 兼容接口
-        
-        API Key 读取优先级：
-        1. 系统环境变量 DASHSCOPE_API_KEY
-        2. 配置文件中的 ALIYUN_LLM_API_KEY
-        """
-        from openai import OpenAI
-        
-        # 优先使用系统环境变量 DASHSCOPE_API_KEY
-        api_key = os.getenv("DASHSCOPE_API_KEY") or settings.ALIYUN_LLM_API_KEY
-        if not api_key:
-            raise ValueError(
-                "请配置阿里云百炼 API Key：设置系统环境变量 DASHSCOPE_API_KEY "
-                "或在 .env 文件中配置 ALIYUN_LLM_API_KEY"
-            )
-        
-        self._model = OpenAI(
-            api_key=api_key,
-            base_url=settings.ALIYUN_LLM_API_BASE
+            api_key=self._api_key,
+            base_url=self._api_base_url
         )
         self._dimension = 1024
     
@@ -138,9 +178,9 @@ class EmbeddingService:
         if cache_key in self._cache:
             return self._cache[cache_key]
         
-        if self._mode in ["api", "aliyun"]:
+        if self._mode == "api":
             response = self._model.embeddings.create(
-                model=self._model_name if self._mode == "aliyun" else "text-embedding-ada-002",
+                model=self._model_name,
                 input=text
             )
             result = response.data[0].embedding
@@ -184,9 +224,9 @@ class EmbeddingService:
                 uncached_indices.append(i)
         
         if uncached_texts:
-            if self._mode in ["api", "aliyun"]:
+            if self._mode == "api":
                 response = self._model.embeddings.create(
-                    model=self._model_name if self._mode == "aliyun" else "text-embedding-ada-002",
+                    model=self._model_name,
                     input=uncached_texts
                 )
                 embeddings = [item.embedding for item in response.data]

@@ -5,20 +5,13 @@ python-multipart>=0.0.12
 
 # Database
 sqlalchemy[asyncio]>=2.0.36
-asyncpg>=0.30.0
+aiosqlite>=0.20.0
 alembic>=1.14.0
-
-# Redis
-redis>=5.2.0
 
 # Data validation
 pydantic>=2.10.0
 pydantic-settings>=2.6.0
 email-validator>=2.2.0
-
-# JWT Authentication
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
 
 # HTTP Client
 httpx>=0.28.0
@@ -48,8 +41,7 @@ sentence-transformers>=2.2.2
 tushare>=1.4.3
 akshare>=1.18.55
 
-# Task Queue
-celery>=5.4.0
+# Cache (基于文件系统，无外部依赖)
 
 # Utilities
 python-dotenv>=1.0.1

@@ -8,7 +8,6 @@
 import { useAgentStore, type AgentType } from '~/stores/agent'
 import { useAnalysisStore } from '~/stores/analysis'
 import { useSessionStore } from '~/stores/session'
-import { useAuthStore } from '~/stores/auth'
 import { useAnalysisSettings, type AnalysisMode } from '~/composables/useAnalysisSettings'
 import sessionService from '~/services/session.service'
 import type { Ref } from 'vue'
@@ -36,7 +35,6 @@ export function useWorkspaceAnalysis(options: UseWorkspaceAnalysisOptions) {
   const agentStore = useAgentStore()
   const analysisStore = useAnalysisStore()
   const sessionStore = useSessionStore()
-  const authStore = useAuthStore()
   const { analysisMode } = useAnalysisSettings()
 
   const route = useRoute()
@@ -340,32 +338,16 @@ export function useWorkspaceAnalysis(options: UseWorkspaceAnalysisOptions) {
     }
   }
 
-  /* 页面初始化逻辑 */
+  /* 页面初始化逻辑（已移除认证检查） */
   async function initPage() {
-    /* 同步检查：本地无 token 立即跳转，避免等待 API */
-    const hasLocalToken = import.meta.client ? !!localStorage.getItem('token') : false
-    if (!hasLocalToken) {
-      router.replace('/?login=1')
-      return
-    }
-
     /* 从URL参数获取基金代码 */
     const fund = route.query.fund as string
     if (fund) {
       headerFundInput.value = fund
     }
 
-    /* 并行触发 restoreAuth 和 fetchSessions，互不依赖 */
-    const [_, sessionsResult] = await Promise.all([
-      authStore.restoreAuth(),
-      sessionStore.fetchSessions()
-    ])
-
-    /* restoreAuth 完成后二次确认登录状态 */
-    if (!authStore.isLoggedIn) {
-      router.replace('/?login=1')
-      return
-    }
+    /* 加载会话列表 */
+    const sessionsResult = await sessionStore.fetchSessions()
 
     /* 在后台异步加载会话详情与报告，不阻塞首次渲染 */
     if (sessionsResult.success && sessionStore.hasSessions && sessionStore.sessions.length > 0) {

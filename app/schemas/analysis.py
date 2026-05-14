@@ -206,7 +206,6 @@ class AgentOutputInfo(BaseModel):
 class SessionDetail(BaseModel):
     """会话详情"""
     session_id: str = Field(..., description="会话ID")
-    user_id: str = Field(..., description="用户ID")
     fund_code: str = Field(..., description="基金代码")
     fund_name: str = Field(..., description="基金名称")
     user_preference: str = Field(..., description="风险偏好")

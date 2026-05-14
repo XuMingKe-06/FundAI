@@ -12,11 +12,19 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ElButton: typeof import('element-plus/es')['ElButton']
+    ElCard: typeof import('element-plus/es')['ElCard']
     ElDialog: typeof import('element-plus/es')['ElDialog']
+    ElDivider: typeof import('element-plus/es')['ElDivider']
     ElForm: typeof import('element-plus/es')['ElForm']
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
+    ElInput: typeof import('element-plus/es')['ElInput']
+    ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
+    ElOption: typeof import('element-plus/es')['ElOption']
     ElRadio: typeof import('element-plus/es')['ElRadio']
     ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
+    ElSelect: typeof import('element-plus/es')['ElSelect']
+    ElTag: typeof import('element-plus/es')['ElTag']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }
@@ -24,11 +32,19 @@ declare module 'vue' {
 
 // For TSX support
 declare global {
+  const ElButton: typeof import('element-plus/es')['ElButton']
+  const ElCard: typeof import('element-plus/es')['ElCard']
   const ElDialog: typeof import('element-plus/es')['ElDialog']
+  const ElDivider: typeof import('element-plus/es')['ElDivider']
   const ElForm: typeof import('element-plus/es')['ElForm']
   const ElFormItem: typeof import('element-plus/es')['ElFormItem']
+  const ElInput: typeof import('element-plus/es')['ElInput']
+  const ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
+  const ElOption: typeof import('element-plus/es')['ElOption']
   const ElRadio: typeof import('element-plus/es')['ElRadio']
   const ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
+  const ElSelect: typeof import('element-plus/es')['ElSelect']
+  const ElTag: typeof import('element-plus/es')['ElTag']
   const RouterLink: typeof import('vue-router')['RouterLink']
   const RouterView: typeof import('vue-router')['RouterView']
 }

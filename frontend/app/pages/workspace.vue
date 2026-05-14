@@ -202,7 +202,7 @@ onMounted(async () => {
   /* 初始化全局点击处理器（关闭右键菜单） */
   setupGlobalClickHandler()
 
-  /* 执行页面初始化（认证检查、会话加载、SSE连接等） */
+  /* 执行页面初始化（会话加载、SSE连接等） */
   await analysis.initPage()
 })
 

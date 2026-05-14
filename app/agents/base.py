@@ -10,6 +10,7 @@ import json
 import logging
 import asyncio
 import uuid
+import random
 
 from app.services.rag_service import get_rag_service
 from app.services.llm_service import get_llm_service
@@ -306,12 +307,29 @@ class BaseAgent(ABC):
                     temperature=temperature
                 )
             else:
-                response = await self._llm_service.chat_async(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    temperature=temperature
-                )
-            
+                # 非工具路径：加入限流重试逻辑
+                max_retries = 3
+                for attempt in range(max_retries + 1):
+                    try:
+                        response = await self._llm_service.chat_async(
+                            prompt=prompt,
+                            system_prompt=system_prompt,
+                            temperature=temperature
+                        )
+                        break
+                    except RateLimitError as e:
+                        if attempt >= max_retries:
+                            raise
+                        delay = min(2.0 * (2 ** attempt) + random.uniform(0, 1), 30)
+                        await self.add_thinking(
+                            f"LLM 请求被限流，{delay:.0f}秒后自动重试（第 {attempt + 1}/{max_retries} 次）..."
+                        )
+                        logger.warning(
+                            f"智能体 {self.name} LLM 请求被限流，"
+                            f"{delay:.1f}秒后重试（第 {attempt + 1}/{max_retries} 次）"
+                        )
+                        await asyncio.sleep(delay)
+
             return response
         except (PermissionDeniedError, RateLimitError, APIError) as e:
             friendly_msg = self._handle_llm_error(e)
@@ -362,112 +380,159 @@ class BaseAgent(ABC):
         final_content = ""
         
         for iteration in range(max_iterations):
-            # 生成唯一思考ID
-            thinking_id = str(uuid.uuid4())
-            
-            await self.add_thinking(
-                f"正在调用大语言模型进行分析（第 {iteration + 1} 轮）...",
-                thinking_id=thinking_id,
-                thinking_type="normal"
-            )
-            
-            try:
-                # 使用流式LLM调用，携带消息历史
-                async for event in self._llm_service.chat_stream_with_tools(
-                    prompt="",  # 使用 messages 参数，此处为空
-                    tools=tools,
-                    messages=messages,
-                    temperature=temperature
-                ):
-                    # 处理开始思考
-                    if event["type"] == "thinking_start":
-                        pass  # 已在上方推送
-                    
-                    # 处理普通内容片段
-                    elif event["type"] == "content_chunk":
-                        chunk_content = event["content"]
-                        await self.add_streaming_thinking(
-                            thinking_id=thinking_id,
-                            chunk_content=chunk_content,
-                            thinking_type="normal"
-                        )
-                        final_content += chunk_content
-                    
-                    # 处理深度思考片段
-                    elif event["type"] == "reasoning_chunk":
-                        reasoning_content = event["content"]
-                        await self.add_streaming_thinking(
-                            thinking_id=thinking_id,
-                            chunk_content=reasoning_content,
-                            thinking_type="deep_thinking"
-                        )
-                    
-                    # 处理工具调用事件
-                    elif event["type"] == "tool_calls":
-                        tool_calls = event["tool_calls"]
-                        
-                        # 添加 assistant 消息，携带工具调用信息
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": final_content if final_content else "正在调用工具...",
-                            "tool_calls": [
-                                {
-                                    "id": tc["id"],
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc["name"],
-                                        "arguments": tc["arguments"]
+            # 限流重试循环：对 RateLimitError 进行指数退避重试
+            retry_count = 0
+            max_retries = 3
+
+            while True:
+                # 每次（重试）尝试使用新的 thinking_id
+                thinking_id = str(uuid.uuid4())
+
+                await self.add_thinking(
+                    f"正在调用大语言模型进行分析（第 {iteration + 1} 轮）"
+                    + (f" - 第 {retry_count + 1} 次重试" if retry_count > 0 else ""),
+                    thinking_id=thinking_id,
+                    thinking_type="normal"
+                )
+
+                # 记录本轮开始前的状态，用于重试时回滚
+                pre_retry_thinking_len = len(self.thinking_process)
+                pre_retry_final_content = final_content
+
+                try:
+                    # 使用流式LLM调用，携带消息历史
+                    async for event in self._llm_service.chat_stream_with_tools(
+                        prompt="",  # 使用 messages 参数，此处为空
+                        tools=tools,
+                        messages=messages,
+                        temperature=temperature
+                    ):
+                        # 处理开始思考
+                        if event["type"] == "thinking_start":
+                            pass  # 已在上方推送
+
+                        # 处理普通内容片段
+                        elif event["type"] == "content_chunk":
+                            chunk_content = event["content"]
+                            await self.add_streaming_thinking(
+                                thinking_id=thinking_id,
+                                chunk_content=chunk_content,
+                                thinking_type="normal"
+                            )
+                            final_content += chunk_content
+
+                        # 处理深度思考片段
+                        elif event["type"] == "reasoning_chunk":
+                            reasoning_content = event["content"]
+                            await self.add_streaming_thinking(
+                                thinking_id=thinking_id,
+                                chunk_content=reasoning_content,
+                                thinking_type="deep_thinking"
+                            )
+
+                        # 处理工具调用事件
+                        elif event["type"] == "tool_calls":
+                            tool_calls = event["tool_calls"]
+
+                            # 添加 assistant 消息，携带工具调用信息
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": final_content if final_content else "正在调用工具...",
+                                "tool_calls": [
+                                    {
+                                        "id": tc["id"],
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc["name"],
+                                            "arguments": tc["arguments"]
+                                        }
                                     }
-                                }
-                                for tc in tool_calls
-                            ]
-                        }
-                        messages.append(assistant_message)
-                        
-                        # 执行所有工具调用
-                        for tc in tool_calls:
-                            tool_name = tc["name"]
-                            tool_args = json.loads(tc["arguments"])
-                            tool_chinese_name = get_tool_chinese_name(tool_name)
-                            
-                            await self.add_thinking(f"正在{tool_chinese_name}...")
-                            
-                            result = await self.execute_tool(tool_name, tool_args)
-                            
-                            # 构建工具响应消息
-                            tool_content = json.dumps(result.to_dict(), ensure_ascii=False, default=str)
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tc["id"],
-                                "content": tool_content if tool_content else "工具执行完成"
-                            })
-                        
-                        # 重置 final_content，用于收集下一轮工具执行后的结果
-                        final_content = ""
-                    
-                    # 处理完成事件
-                    elif event["type"] == "complete":
-                        final_content = event["content"]
-                        # 标记流式思考完成
-                        await self.add_streaming_thinking(
-                            thinking_id, "",
-                            "deep_thinking" if thinking_id in self._streaming_buffer and self._streaming_buffer[thinking_id] else "normal",
-                            is_complete=True
+                                    for tc in tool_calls
+                                ]
+                            }
+                            messages.append(assistant_message)
+
+                            # 执行所有工具调用
+                            for tc in tool_calls:
+                                tool_name = tc["name"]
+                                tool_args = json.loads(tc["arguments"])
+                                tool_chinese_name = get_tool_chinese_name(tool_name)
+
+                                await self.add_thinking(f"正在{tool_chinese_name}...")
+
+                                result = await self.execute_tool(tool_name, tool_args)
+
+                                # 构建工具响应消息
+                                tool_content = json.dumps(result.to_dict(), ensure_ascii=False, default=str)
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": tool_content if tool_content else "工具执行完成"
+                                })
+
+                            # 重置 final_content，用于收集下一轮工具执行后的结果
+                            final_content = ""
+
+                        # 处理完成事件
+                        elif event["type"] == "complete":
+                            final_content = event["content"]
+                            # 标记流式思考完成
+                            await self.add_streaming_thinking(
+                                thinking_id, "",
+                                "deep_thinking" if thinking_id in self._streaming_buffer and self._streaming_buffer[thinking_id] else "normal",
+                                is_complete=True
+                            )
+                            # 添加 assistant 消息
+                            if final_content:
+                                messages.append({"role": "assistant", "content": final_content})
+                            return final_content
+
+                    # 正常完成流式迭代（没有 complete 事件但流结束），退出重试循环
+                    break
+
+                except RateLimitError as e:
+                    # 仅对限流错误进行重试
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        logger.error(
+                            f"智能体 {self.name} LLM 请求已被限流 "
+                            f"（已重试 {max_retries} 次），放弃重试"
                         )
-                        # 添加 assistant 消息
-                        if final_content:
-                            messages.append({"role": "assistant", "content": final_content})
-                        return final_content
-                    
-            except (PermissionDeniedError, RateLimitError, APIError) as e:
-                friendly_msg = self._handle_llm_error(e)
-                self.error_message = friendly_msg
-                raise
-            except Exception as e:
-                friendly_msg = self._handle_llm_error(e)
-                self.error_message = friendly_msg
-                raise
-        
+                        friendly_msg = self._handle_llm_error(e)
+                        self.error_message = friendly_msg
+                        raise
+
+                    # 回滚本轮已产生的部分 thinking_process 记录和流式缓冲区
+                    while len(self.thinking_process) > pre_retry_thinking_len:
+                        removed = self.thinking_process.pop()
+                        self._streaming_buffer.pop(removed.get("thinking_id"), None)
+                    final_content = pre_retry_final_content
+
+                    # 指数退避 + 随机抖动
+                    delay = min(2.0 * (2 ** (retry_count - 1)) + random.uniform(0, 1), 30)
+                    await self.add_thinking(
+                        f"LLM 请求被限流，{delay:.0f}秒后自动重试"
+                        f"（第 {retry_count}/{max_retries} 次）..."
+                    )
+                    logger.warning(
+                        f"智能体 {self.name} LLM 请求被限流，"
+                        f"{delay:.1f}秒后重试（第 {retry_count}/{max_retries} 次）"
+                    )
+                    await asyncio.sleep(delay)
+                    # 继续 while True 重试循环
+                    continue
+
+                except (PermissionDeniedError, APIError) as e:
+                    # 非限流 API 错误直接抛出，不重试
+                    friendly_msg = self._handle_llm_error(e)
+                    self.error_message = friendly_msg
+                    raise
+                except Exception as e:
+                    # 未知错误直接抛出
+                    friendly_msg = self._handle_llm_error(e)
+                    self.error_message = friendly_msg
+                    raise
+
         # 达到最大迭代次数，返回最后一条消息内容
         return final_content
     
@@ -694,7 +759,7 @@ class BaseAgent(ABC):
         Args:
             fund_code: 基金代码
             context: 分析上下文
-            use_rag: 是否使用RAG知识增强
+            use_rag: 是否使用RAG知识增强（若 embedding 未配置则自动禁用）
             use_tools: 是否使用工具调用
             
         Returns:
@@ -705,6 +770,14 @@ class BaseAgent(ABC):
         # 注入当前日期信息到上下文，使智能体感知当前时间
         context["current_date"] = date.today().isoformat()
         context["current_datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 检查 embedding 是否已配置，若未配置则自动禁用 RAG
+        if use_rag:
+            from app.core.settings_manager import get_settings_manager
+            settings_manager = get_settings_manager()
+            if not settings_manager.is_embedding_configured():
+                use_rag = False
+                logger.info(f"智能体 {self.name}: Embedding 未配置，自动禁用 RAG")
 
         if use_rag:
             rag_context = await self.build_rag_context(
