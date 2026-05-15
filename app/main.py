@@ -1,10 +1,11 @@
 """
 FundAI 后端服务主入口
 """
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -13,12 +14,14 @@ from app.core.database import async_engine, Base
 from app.core.cache import cache_client
 from app.api import api_v1_router
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
-    print(f"启动 {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info("启动 %s v%s", settings.APP_NAME, settings.APP_VERSION)
 
     # 创建数据库表
     async with async_engine.begin() as conn:
@@ -27,7 +30,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # 关闭时
-    print(f"关闭 {settings.APP_NAME}")
+    logger.info("关闭 %s", settings.APP_NAME)
     await cache_client.close()
 
 
@@ -46,8 +49,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
     max_age=3600,
 )
 
@@ -70,22 +73,42 @@ async def add_request_context(request: Request, call_next):
 
 
 # 异常处理
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """全局异常处理"""
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """HTTP异常处理，确保统一的错误响应格式"""
     return JSONResponse(
-        status_code=500,
+        status_code=exc.status_code,
         content={
-            "code": 500,
-            "message": "服务器内部错误",
-            "error": {
-                "type": type(exc).__name__,
-                "details": [{"message": str(exc)}]
-            },
+            "code": exc.status_code,
+            "message": exc.detail,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "request_id": str(uuid.uuid4())
         }
     )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理，生产环境不泄露内部错误详情"""
+    request_id = str(uuid.uuid4())
+    logger.error(
+        "未处理异常 [request_id=%s]: %s: %s",
+        request_id, type(exc).__name__, exc,
+        exc_info=True
+    )
+    content = {
+        "code": 500,
+        "message": "服务器内部错误",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "request_id": request_id
+    }
+    # 仅在 DEBUG 模式下暴露错误类型和详情
+    if settings.DEBUG:
+        content["error"] = {
+            "type": type(exc).__name__,
+            "details": [{"message": str(exc)}]
+        }
+    return JSONResponse(status_code=500, content=content)
 
 
 # 注册API路由

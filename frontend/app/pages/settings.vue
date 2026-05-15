@@ -263,8 +263,8 @@
 
           <!-- 保存按钮 -->
           <el-form-item class="form-actions">
-            <el-button type="primary" @click="handleSaveRAG">
-              保存配置
+            <el-button type="primary" :loading="settingsStore.saving" @click="handleSaveRAG">
+              {{ settingsStore.saving ? '保存中...' : '保存配置' }}
             </el-button>
           </el-form-item>
         </el-form>
@@ -347,9 +347,14 @@ async function handleTestConnection() {
   }
 }
 
-/* 保存 RAG 配置（暂时只保存到前端 store，后续再对接后端 API） */
-function handleSaveRAG() {
-  ElMessage.success('RAG 配置已保存（仅前端）')
+/* 保存 RAG 配置 */
+async function handleSaveRAG() {
+  const success = await settingsStore.saveRAGSettings()
+  if (success) {
+    ElMessage.success('RAG 配置保存成功')
+  } else {
+    ElMessage.error('RAG 配置保存失败')
+  }
 }
 
 /* 页面加载时自动获取配置 */

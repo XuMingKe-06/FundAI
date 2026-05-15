@@ -38,14 +38,19 @@ class Settings(BaseSettings):
     # ChromaDB 向量数据库持久化目录
     CHROMA_PERSIST_DIR: str = "./data/chroma"
     # 本地 Embedding 模型名称（EMBEDDING_MODE 为 local 时生效）
+    # 注意：实际运行时由 config.json (llm.embedding_model) 优先控制，此为回退默认值
     EMBEDDING_MODEL_NAME: str = ""
     # Embedding 模式：local 使用本地模型，api 使用远程 API
+    # 注意：实际运行时由 config.json (rag.embedding_mode) 优先控制，此为回退默认值
     EMBEDDING_MODE: str = "api"
     # RAG 检索返回的文档数量
+    # 注意：实际运行时由 config.json (rag.top_k) 优先控制，此为回退默认值
     RAG_TOP_K: int = 5
     # 文档分块大小（字符数）
+    # 注意：实际运行时由 config.json (rag.chunk_size) 优先控制，此为回退默认值
     RAG_CHUNK_SIZE: int = 500
     # 文档分块重叠大小（字符数）
+    # 注意：实际运行时由 config.json (rag.chunk_overlap) 优先控制，此为回退默认值
     RAG_CHUNK_OVERLAP: int = 50
 
     class Config:

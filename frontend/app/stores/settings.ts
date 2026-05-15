@@ -89,6 +89,21 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  /* 保存 RAG 配置 */
+  async function saveRAGSettings() {
+    saving.value = true
+    try {
+      const data = await settingsService.updateRAGSettings(rag.value)
+      rag.value = data
+      return true
+    } catch (error) {
+      console.error('保存 RAG 配置失败:', error)
+      return false
+    } finally {
+      saving.value = false
+    }
+  }
+
   /* 测试 LLM 连接 */
   async function testConnection() {
     testing.value = true
@@ -123,6 +138,7 @@ export const useSettingsStore = defineStore('settings', () => {
     fetchSettings,
     saveLLMSettings,
     saveDatasourceSettings,
+    saveRAGSettings,
     testConnection,
   }
 })

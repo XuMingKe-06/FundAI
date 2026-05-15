@@ -29,6 +29,7 @@ class LLMService:
         """
         if cls._instance is None:
             cls._instance = super().__new__(cls)
+            cls._instance._init_done = False
         return cls._instance
     
     def __init__(self):
@@ -36,10 +37,13 @@ class LLMService:
         初始化 LLM 服务
         延迟加载客户端，不在初始化时创建连接
         """
+        if self._init_done:
+            return
         self._model: Optional[str] = None
         self._api_key: Optional[str] = None
         self._base_url: Optional[str] = None
         self._initialized = False
+        self._init_done = True
     
     def _get_settings_manager(self):
         """获取配置管理器（延迟导入避免循环依赖）"""
@@ -89,7 +93,7 @@ class LLMService:
         self._initialized = True
         logger.info(f"LLM 服务初始化完成: base_url={self._base_url}, model={self._model}")
     
-    def chat(
+    async def chat(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -98,7 +102,7 @@ class LLMService:
         **kwargs
     ) -> str:
         """
-        单轮对话（同步）
+        单轮对话（异步，内部使用 asyncio.to_thread 包装同步调用）
         
         Args:
             prompt: 用户输入
@@ -120,7 +124,8 @@ class LLMService:
             messages.append({"role": "system", "content": system_prompt.strip()})
         messages.append({"role": "user", "content": prompt.strip()})
         
-        response = self._client.chat.completions.create(
+        response = await asyncio.to_thread(
+            self._client.chat.completions.create,
             model=self._model,
             messages=messages,
             temperature=temperature,
@@ -415,7 +420,7 @@ class LLMService:
         
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].content
+                yield chunk.choices[0].delta.content
     
     def get_client(self) -> OpenAI:
         """

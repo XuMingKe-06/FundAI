@@ -114,6 +114,36 @@ async def update_datasource_settings(data: DatasourceSettings):
     )
 
 
+@router.get("/rag", response_model=ApiResponse[RAGSettings])
+async def get_rag_settings():
+    """获取RAG配置"""
+    sm = get_settings_manager()
+    config = sm.get_all()
+    return ApiResponse(
+        code=200,
+        message="success",
+        data=RAGSettings(**config.get("rag", {})),
+    )
+
+
+@router.put("/rag", response_model=ApiResponse[RAGSettings])
+async def update_rag_settings(data: RAGSettings):
+    """更新RAG配置"""
+    sm = get_settings_manager()
+    sm.update({"rag": data.model_dump()})
+
+    # 重置 RAG 服务的配置缓存，使其能重新检测 Embedding 配置状态
+    from app.services.rag_service import get_rag_service
+    get_rag_service().reset_config_cache()
+
+    config = sm.get_all()
+    return ApiResponse(
+        code=200,
+        message="RAG配置更新成功",
+        data=RAGSettings(**config.get("rag", {})),
+    )
+
+
 @router.post("/llm/test", response_model=ApiResponse[LLMTestResponse])
 async def test_llm_connection(request: LLMTestRequest):
     """测试LLM连接"""

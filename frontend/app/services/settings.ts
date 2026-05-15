@@ -74,6 +74,16 @@ export async function updateDatasourceSettings(data: DatasourceSettings): Promis
   return put<DatasourceSettings>('/settings/datasource', data)
 }
 
+/* 获取 RAG 配置 */
+export async function getRAGSettings(): Promise<RAGSettings> {
+  return get<RAGSettings>('/settings/rag')
+}
+
+/* 更新 RAG 配置 */
+export async function updateRAGSettings(data: RAGSettings): Promise<RAGSettings> {
+  return put<RAGSettings>('/settings/rag', data)
+}
+
 /* 测试 LLM 连接 */
 export async function testLLMConnection(request: LLMTestRequest): Promise<LLMTestResponse> {
   return post<LLMTestResponse>('/settings/llm/test', request)
@@ -87,6 +97,8 @@ export const settingsService = {
   updateLLMSettings,
   getDatasourceSettings,
   updateDatasourceSettings,
+  getRAGSettings,
+  updateRAGSettings,
   testLLMConnection,
 }
 

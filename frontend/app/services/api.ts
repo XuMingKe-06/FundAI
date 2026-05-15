@@ -54,6 +54,48 @@ function transformKeysToSnake<T>(obj: T): T {
   return obj
 }
 
+/* 开发环境标识 */
+const isDev = import.meta.dev
+
+/* 差异化超时配置 */
+const TIMEOUT_CONFIG = {
+  analysis: 120000,  // 分析相关接口 120s
+  query: 15000,      // 普通查询接口 15s
+  default: 30000,    // 默认超时 30s
+} as const
+
+/* 分析相关 URL 模式 */
+const ANALYSIS_URL_PATTERNS = ['/analysis/', '/sessions/']
+/* 普通查询 URL 模式 */
+const QUERY_URL_PATTERNS = ['/funds/search', '/funds/', '/knowledge/']
+
+/** 根据 URL 自动匹配超时时间 */
+function getTimeoutByUrl(url: string): number {
+  if (ANALYSIS_URL_PATTERNS.some(p => url?.includes(p))) return TIMEOUT_CONFIG.analysis
+  if (QUERY_URL_PATTERNS.some(p => url?.includes(p))) return TIMEOUT_CONFIG.query
+  return TIMEOUT_CONFIG.default
+}
+
+/* 重试配置 */
+const RETRY_CONFIG = {
+  maxRetries: 3,     // 最大重试次数
+  baseDelay: 1000,   // 基础延迟 1s
+  maxDelay: 10000,   // 最大延迟 10s
+} as const
+
+/** 判断错误是否可重试（仅网络错误和 5xx，不重试 4xx） */
+function isRetryableError(error: any): boolean {
+  if (!error.response) return true
+  const status = error.response.status
+  return status >= 500 && status < 600
+}
+
+/** 计算指数退避延迟 */
+function getRetryDelay(retryCount: number): number {
+  const delay = RETRY_CONFIG.baseDelay * Math.pow(2, retryCount)
+  return Math.min(delay, RETRY_CONFIG.maxDelay)
+}
+
 /* API 响应通用结构 */
 export interface ApiResponse<T = unknown> {
   code: number
@@ -79,56 +121,58 @@ const createApiClient = (): AxiosInstance => {
     },
   })
 
-  /* 请求拦截器 - 将 camelCase 转换为 snake_case + 记录请求日志 */
+  /* 请求拦截器 - 差异化超时 + 键名转换 + 开发日志 */
   client.interceptors.request.use(
     (config) => {
-      /* 将请求数据中的 camelCase 键名转换为 snake_case */
+      config.timeout = getTimeoutByUrl(config.url || '')
       if (config.data && typeof config.data === 'object') {
         config.data = transformKeysToSnake(config.data)
       }
-      /* 将请求参数中的 camelCase 键名转换为 snake_case */
       if (config.params && typeof config.params === 'object') {
         config.params = transformKeysToSnake(config.params)
       }
-      console.log(`[API Request] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`)
-      if (config.params) {
-        console.log('[API Request Params]', config.params)
-      }
-      if (config.data) {
-        console.log('[API Request Data]', config.data)
+      if (isDev) {
+        console.log(`[API Request] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`)
+        if (config.params) {
+          console.log('[API Request Params]', config.params)
+        }
+        if (config.data) {
+          console.log('[API Request Data]', config.data)
+        }
       }
       return config
     },
     (error) => {
-      console.log('[API Error] Request failed:', error.message)
+      if (isDev) {
+        console.log('[API Error] Request failed:', error.message)
+      }
       return Promise.reject(error)
     }
   )
 
-  /* 响应拦截器 - 键名转换 + 错误日志 */
+  /* 响应拦截器 - 键名转换 + 开发日志 */
   client.interceptors.response.use(
     (response) => {
-      /* 输出响应日志 */
-      console.log(`[API Response] ${response.status} ${response.config.baseURL}${response.config.url}`)
-      console.log('[API Response Data]', response.data)
-
-      /* 将响应数据中的 snake_case 键名转换为 camelCase */
+      if (isDev) {
+        console.log(`[API Response] ${response.status} ${response.config.baseURL}${response.config.url}`)
+        console.log('[API Response Data]', response.data)
+      }
       response.data = transformKeys(response.data)
       return response
     },
     (error) => {
-      /* 输出错误日志 */
-      if (error.response) {
-        console.log(`[API Error] ${error.response.status} ${error.config?.baseURL}${error.config?.url}`)
-        console.log('[API Error] Response data:', error.response.data)
-        console.log('[API Error] Message:', error.message)
-      } else if (error.request) {
-        console.log('[API Error] No response received')
-        console.log('[API Error] Message:', error.message)
-      } else {
-        console.log('[API Error] Request setup error:', error.message)
+      if (isDev) {
+        if (error.response) {
+          console.log(`[API Error] ${error.response.status} ${error.config?.baseURL}${error.config?.url}`)
+          console.log('[API Error] Response data:', error.response.data)
+          console.log('[API Error] Message:', error.message)
+        } else if (error.request) {
+          console.log('[API Error] No response received')
+          console.log('[API Error] Message:', error.message)
+        } else {
+          console.log('[API Error] Request setup error:', error.message)
+        }
       }
-
       return Promise.reject(error)
     }
   )
@@ -139,35 +183,56 @@ const createApiClient = (): AxiosInstance => {
 /* API 客户端实例 */
 export const apiClient = createApiClient()
 
-/* 通用请求方法 */
+/* 通用请求方法（支持重试 + AbortController 取消） */
 export async function request<T>(config: AxiosRequestConfig): Promise<T> {
-  const response: AxiosResponse<ApiResponse<T>> = await apiClient.request(config)
-  return response.data.data
+  let lastError: any = null
+
+  for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+    try {
+      const response: AxiosResponse<ApiResponse<T>> = await apiClient.request(config)
+      return response.data.data
+    } catch (error: any) {
+      lastError = error
+
+      /* 请求被取消、不可重试的错误（4xx）、已达最大重试次数，直接抛出 */
+      if (axios.isCancel(error) || !isRetryableError(error) || attempt >= RETRY_CONFIG.maxRetries) {
+        throw error
+      }
+
+      const delay = getRetryDelay(attempt)
+      if (isDev) {
+        console.log(`[API Retry] 第${attempt + 1}次重试，${delay}ms 后执行: ${config.url}`)
+      }
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError
 }
 
 /* GET 请求 */
-export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  return request<T>({ method: 'GET', url, params })
+export async function get<T>(url: string, params?: Record<string, unknown>, config?: AxiosRequestConfig): Promise<T> {
+  return request<T>({ method: 'GET', url, params, ...config })
 }
 
 /* POST 请求 */
-export async function post<T>(url: string, data?: unknown): Promise<T> {
-  return request<T>({ method: 'POST', url, data })
+export async function post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return request<T>({ method: 'POST', url, data, ...config })
 }
 
 /* PUT 请求 */
-export async function put<T>(url: string, data?: unknown): Promise<T> {
-  return request<T>({ method: 'PUT', url, data })
+export async function put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return request<T>({ method: 'PUT', url, data, ...config })
 }
 
 /* DELETE 请求 */
-export async function del<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  return request<T>({ method: 'DELETE', url, params })
+export async function del<T>(url: string, params?: Record<string, unknown>, config?: AxiosRequestConfig): Promise<T> {
+  return request<T>({ method: 'DELETE', url, params, ...config })
 }
 
 /* PATCH 请求 */
-export async function patch<T>(url: string, data?: unknown): Promise<T> {
-  return request<T>({ method: 'PATCH', url, data })
+export async function patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return request<T>({ method: 'PATCH', url, data, ...config })
 }
 
 /* 分页响应结构（兼容旧接口） */

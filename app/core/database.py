@@ -8,7 +8,7 @@
 
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event
 
 from app.core.config import settings
@@ -47,7 +47,8 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 # 声明基类（所有 ORM 模型继承此类）
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 
 async def get_async_session() -> AsyncSession:

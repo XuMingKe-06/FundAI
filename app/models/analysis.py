@@ -3,7 +3,7 @@
 适配 SQLite：使用 String(36) 替代 UUID，JSON 替代 JSONB
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, Numeric, Text, Integer, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
@@ -29,7 +29,7 @@ class AnalysisSession(Base):
     # 会话状态：pending / running / completed / failed
     status = Column(String(20), nullable=False, default="pending")
     # 创建时间
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     # 完成时间
     completed_at = Column(DateTime, nullable=True)
 
@@ -67,7 +67,7 @@ class AgentOutput(Base):
     # 错误信息
     error_message = Column(Text, nullable=True)
     # 开始执行时间
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     # 执行完成时间
     completed_at = Column(DateTime, nullable=True)
     # 执行耗时（毫秒）
@@ -103,7 +103,7 @@ class DecisionReport(Base):
     # 免责声明
     disclaimer = Column(Text, nullable=False)
     # 报告生成时间
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # 关联关系
     session = relationship("AnalysisSession", back_populates="report")

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, delete
+from sqlalchemy import select, desc, delete, func
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_async_session
@@ -39,13 +39,13 @@ async def get_sessions(
     if status:
         query = query.where(AnalysisSession.status == status)
 
-    # 计算总数
-    count_query = select(AnalysisSession.id)
+    # 计算总数（使用 SELECT COUNT 避免加载全部数据到内存）
+    count_query = select(func.count(AnalysisSession.id))
     if status:
         count_query = count_query.where(AnalysisSession.status == status)
 
     total_result = await session.execute(count_query)
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     # 分页查询
     offset = (page - 1) * size

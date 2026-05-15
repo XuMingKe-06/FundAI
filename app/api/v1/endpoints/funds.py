@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 import json
 
 from app.core.database import get_async_session
@@ -58,8 +58,8 @@ async def search_funds(
     if type:
         query = query.where(Fund.fund_type == type)
 
-    # 计算总数
-    count_query = select(Fund.fund_code)
+    # 计算总数（使用 SELECT COUNT 避免加载全部数据到内存）
+    count_query = select(func.count(Fund.id))
     if keyword:
         count_query = count_query.where(
             or_(
@@ -71,7 +71,7 @@ async def search_funds(
         count_query = count_query.where(Fund.fund_type == type)
 
     total_result = await session.execute(count_query)
-    db_total = len(total_result.all())
+    db_total = total_result.scalar() or 0
 
     # 如果数据库中没有结果，尝试从数据源搜索
     if db_total == 0:

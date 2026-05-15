@@ -133,8 +133,9 @@ class RiskAgent(BaseAgent):
         excess_returns = returns - daily_rf
         
         negative_returns = returns[returns < daily_rf]
+        # 无下行收益时返回 None 而非 float('inf')，避免 JSON 序列化失败
         if len(negative_returns) == 0:
-            return float('inf') if np.mean(excess_returns) > 0 else 0.0
+            return None
         
         downside_std = np.std(negative_returns, ddof=1)
         if downside_std == 0:
@@ -420,7 +421,8 @@ class RiskAgent(BaseAgent):
             
             calmar_ratio = self._calculate_calmar_ratio(returns, max_drawdown)
             sortino_ratio = self._calculate_sortino_ratio(returns)
-            await self.add_thinking(f"卡玛比率: {calmar_ratio}，索提诺比率: {sortino_ratio}")
+            sortino_display = f"{sortino_ratio}" if sortino_ratio is not None else "无下行风险"
+            await self.add_thinking(f"卡玛比率: {calmar_ratio}，索提诺比率: {sortino_display}")
             
             await self.add_thinking("正在计算Beta系数...")
             benchmark_returns = await self._get_benchmark_returns(start_date, end_date)
@@ -457,6 +459,7 @@ class RiskAgent(BaseAgent):
                 "sharpe_ratio": sharpe_ratio,
                 "calmar_ratio": calmar_ratio,
                 "sortino_ratio": sortino_ratio,
+                "sortino_ratio_note": "无下行风险" if sortino_ratio is None else None,
                 "beta": beta,
                 "correlation": correlation,
                 "benchmark": "沪深300"

@@ -5,7 +5,7 @@
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Callable, Awaitable
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import json
 import logging
 import asyncio
@@ -211,7 +211,7 @@ class BaseAgent(ABC):
             "args": args,
             "result": result_dict,
             "time": datetime.now().strftime("%H:%M:%S"),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
         
         if self._tool_call_callback:
@@ -820,19 +820,19 @@ class BaseAgent(ABC):
         Returns:
             分析结果字典
         """
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.status = "running"
 
         try:
             result = await self.analyze(fund_code, context)
             self.status = "completed"
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             return result
         except Exception as e:
             self.status = "failed"
             self.error_message = str(e)
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             raise
     

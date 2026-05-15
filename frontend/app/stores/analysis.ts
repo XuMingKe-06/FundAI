@@ -157,64 +157,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     }
   }
 
-  /* 订阅分析进度流 */
-  function subscribeAnalysisProgress(sessionId: string) {
-    /* 关闭之前的连接 */
-    unsubscribeAnalysisProgress()
-
-    const es = analysisService.getAnalysisStream(sessionId)
-    if (!es) return
-
-    eventSource.value = es
-
-    /* 连接成功 */
-    es.onopen = () => {
-      progress.value = 0
-    }
-
-    /* 接收消息 */
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        switch (data.type) {
-          case 'progress':
-            /* 更新进度 */
-            progress.value = data.progress
-            break
-
-          case 'agent_update':
-            /* 智能体状态更新，由 agent store 处理 */
-            break
-
-          case 'complete':
-            /* 分析完成 */
-            progress.value = 100
-            if (data.report) {
-              currentReport.value = data.report
-            }
-            unsubscribeAnalysisProgress()
-            break
-
-          case 'error':
-            /* 分析错误 */
-            error.value = data.message
-            unsubscribeAnalysisProgress()
-            break
-        }
-      } catch {
-        /* 解析失败，忽略 */
-      }
-    }
-
-    /* 连接错误 */
-    es.onerror = () => {
-      error.value = '分析进度连接失败'
-      unsubscribeAnalysisProgress()
-    }
-  }
-
-  /* 取消订阅分析进度 */
+  /* 取消订阅分析进度（内部使用，由 clearReport 调用） */
   function unsubscribeAnalysisProgress() {
     if (eventSource.value) {
       eventSource.value.close()
@@ -267,8 +210,6 @@ export const useAnalysisStore = defineStore('analysis', () => {
     clearPauseState,
     createAnalysis,
     fetchReport,
-    subscribeAnalysisProgress,
-    unsubscribeAnalysisProgress,
     clearReport,
     searchFunds,
   }

@@ -59,11 +59,11 @@
               <div
                 v-else
                 v-for="item in suggestionItems"
-                :key="item.fund_code"
+                :key="item.fundCode"
                 class="suggestion-item"
-                @click="selectFund(item.fund_code, item.fund_name)"
+                @click="selectFund(item.fundCode, item.fundName)"
               >
-                {{ item.fund_code }} - {{ item.fund_name }}
+                {{ item.fundCode }} - {{ item.fundName }}
               </div>
               <!-- 无结果提示 -->
               <div
@@ -339,6 +339,7 @@
 <script setup lang="ts">
 /* 导入基金搜索服务 */
 import { useFundService, type FundSearchItem } from '~/composables/useFundService'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 
@@ -432,7 +433,7 @@ function navigateToWorkspacePage() {
 function startAnalysis() {
   const inputValue = fundInput.value.trim()
   if (!inputValue) {
-    alert('请输入基金代码或名称')
+    ElMessage.warning('请输入基金代码或名称')
     return
   }
 
@@ -441,7 +442,7 @@ function startAnalysis() {
 
   /* 验证基金代码格式 */
   if (!/^\d{6}$/.test(fundCode)) {
-    alert('请输入有效的6位基金代码')
+    ElMessage.warning('请输入有效的6位基金代码')
     return
   }
 
