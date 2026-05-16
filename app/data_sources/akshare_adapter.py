@@ -64,12 +64,25 @@ class AkshareAdapter(BaseDataSource):
         if value is None or pd.isna(value):
             return None
         try:
-            # 处理百分比字符串
             if isinstance(value, str):
                 value = value.replace("%", "").strip()
             return float(value)
         except (ValueError, TypeError):
             return None
+
+    def _normalize_fee_rate(self, value) -> Optional[float]:
+        """将费率归一化为小数形式（与Tushare一致）
+
+        AKShare 的 fund_fee_em 返回百分比形式（如 1.5 代表 1.5%），
+        而 Tushare 返回小数形式（如 0.015 代表 1.5%）。
+        此方法统一转换为小数形式。
+        """
+        v = self._safe_float(value)
+        if v is None:
+            return None
+        if v > 1:
+            v = v / 100
+        return v
     
     async def get_fund_info(self, fund_code: str) -> Optional[Dict[str, Any]]:
         """
@@ -409,28 +422,25 @@ class AkshareAdapter(BaseDataSource):
                 "service_fee": None,
             }
             
-            # 尝试从 DataFrame 中提取费率
             if isinstance(fee_df, pd.DataFrame):
-                # 检查是否是键值对格式
                 if "item" in fee_df.columns and "value" in fee_df.columns:
                     fee_dict = dict(zip(fee_df["item"], fee_df["value"]))
-                    result["management_fee"] = self._safe_float(fee_dict.get("管理费率"))
-                    result["custody_fee"] = self._safe_float(fee_dict.get("托管费率"))
-                    result["service_fee"] = self._safe_float(fee_dict.get("销售服务费率"))
+                    result["management_fee"] = self._normalize_fee_rate(fee_dict.get("管理费率"))
+                    result["custody_fee"] = self._normalize_fee_rate(fee_dict.get("托管费率"))
+                    result["service_fee"] = self._normalize_fee_rate(fee_dict.get("销售服务费率"))
                 else:
-                    # 尝试从列名中提取
                     for col in fee_df.columns:
                         col_lower = col.lower()
                         if "管理费" in col or "management" in col_lower:
-                            result["management_fee"] = self._safe_float(fee_df[col].iloc[0])
+                            result["management_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
                         elif "托管费" in col or "custody" in col_lower:
-                            result["custody_fee"] = self._safe_float(fee_df[col].iloc[0])
+                            result["custody_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
                         elif "申购费" in col or "purchase" in col_lower:
-                            result["purchase_fee"] = self._safe_float(fee_df[col].iloc[0])
+                            result["purchase_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
                         elif "赎回费" in col or "redemption" in col_lower:
-                            result["redemption_fee"] = self._safe_float(fee_df[col].iloc[0])
+                            result["redemption_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
                         elif "服务费" in col or "service" in col_lower:
-                            result["service_fee"] = self._safe_float(fee_df[col].iloc[0])
+                            result["service_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
             
             # 获取基金名称
             try:

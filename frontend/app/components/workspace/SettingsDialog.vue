@@ -7,7 +7,7 @@
   >
     <el-form label-position="top">
       <el-form-item label="智能体执行模式">
-        <el-radio-group :model-value="analysisMode" @change="(val: string | number | boolean) => $emit('modeChange', val as AnalysisMode)">
+        <el-radio-group :model-value="analysisMode" @change="(val: string | number | boolean | undefined) => $emit('modeChange', val as AnalysisMode)">
           <el-radio value="parallel" class="settings-radio">
             <div class="settings-radio-content">
               <span class="settings-radio-title">并行模式</span>

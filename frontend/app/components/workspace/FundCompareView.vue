@@ -78,7 +78,7 @@ function isBest(metric: MetricDef, fundIndex: number): boolean {
   const funds = visibleFunds.value
   const values = funds.map(f => f[metric.key] as number | undefined).filter(v => v != null) as number[]
   if (values.length === 0) return false
-  const targetVal = funds[fundIndex][metric.key] as number | undefined
+  const targetVal = funds[fundIndex]?.[metric.key] as number | undefined
   if (targetVal == null) return false
   if (metric.bestDirection === 'max') return targetVal === Math.max(...values)
   return targetVal === Math.min(...values)
