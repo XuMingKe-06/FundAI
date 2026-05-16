@@ -101,6 +101,7 @@
 
 .sidebar-left.collapsed {
   width: var(--sidebar-width-left-collapsed);
+  z-index: var(--z-fixed);
 }
 
 .sidebar-header {
