@@ -4,7 +4,7 @@
 负责基金费率结构分析、成本矩阵计算、短线可行性评估
 采用LLM驱动的分析方法，通过提示词模板引导分析过程
 """
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import logging
 
 from app.agents.base import BaseAgent
@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 class CostAgent(BaseAgent):
     """成本分析师智能体"""
     
+    PLATFORM_DISCOUNTS = {
+        "tiantian": 0.1,
+        "alipay": 0.1,
+        "bank": 0.4,
+        "direct": 1.0,
+    }
+    DEFAULT_PLATFORM = "tiantian"
+
     DEFAULT_REDEMPTION_LADDER = [
         {"min_days": 0, "max_days": 7, "fee_rate": 0.015, "description": "不满7天"},
         {"min_days": 7, "max_days": 30, "fee_rate": 0.0075, "description": "7-30天"},
@@ -156,9 +164,11 @@ class CostAgent(BaseAgent):
                 "sales_service_fee": None,
                 "redemption_ladder": redemption_ladder,
             }
+            from app.core.data_provenance import annotate_estimated_data
+            fees_info = annotate_estimated_data(fees_info, "fees", "无法从数据源获取费率，使用默认估算值")
         else:
             purchase_fee = self._parse_purchase_fee(fees_data)
-            redemption_ladder = self._parse_redemption_ladder(fees_data)
+            redemption_ladder, is_estimated = self._parse_redemption_ladder(fees_data)
             
             fees_info = {
                 "purchase_fee_original": fees_data.get("purchase_fee"),
@@ -167,12 +177,21 @@ class CostAgent(BaseAgent):
                 "custody_fee": fees_data.get("custody_fee"),
                 "sales_service_fee": fees_data.get("sales_service_fee"),
                 "redemption_ladder": redemption_ladder,
+                "redemption_is_estimated": is_estimated,
             }
             
             await self.add_thinking(
                 f"申购费率原价{self._format_rate(fees_data.get('purchase_fee'))}，"
                 f"代销平台折扣后{self._format_rate(purchase_fee)}"
             )
+
+            if is_estimated:
+                await self.add_thinking("注意：赎回费率阶梯为估算值，基于基准费率线性缩放，可能与实际不符")
+                from app.core.data_provenance import annotate_estimated_data
+                fees_info = annotate_estimated_data(fees_info, "fees", "赎回费率阶梯为估算值，基于基准费率线性缩放")
+            else:
+                from app.core.data_provenance import annotate_data_source
+                fees_info = annotate_data_source(fees_info, "fees")
         
         await self.add_thinking("正在构建成本矩阵...")
         cost_matrix = self._build_cost_matrix(purchase_fee, redemption_ladder)
@@ -192,33 +211,21 @@ class CostAgent(BaseAgent):
         
         return enhanced_context
     
-    def _parse_purchase_fee(self, fees_data: Dict[str, Any]) -> float:
-        """
-        解析申购费率
-        
-        Args:
-            fees_data: 费率数据
-            
-        Returns:
-            申购费率（考虑平台折扣）
-        """
+    def _parse_purchase_fee(self, fees_data: Dict[str, Any], platform: str = None) -> float:
+        if platform is None:
+            platform = self.DEFAULT_PLATFORM
+        discount = self.PLATFORM_DISCOUNTS.get(platform, 0.1)
         original_fee = fees_data.get("purchase_fee")
         if original_fee is not None:
-            return float(original_fee) * 0.1
+            return float(original_fee) * discount
         return 0.0015
     
-    def _parse_redemption_ladder(self, fees_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        解析赎回费率阶梯
-        
-        Args:
-            fees_data: 费率数据
-            
-        Returns:
-            赎回费率阶梯列表
-        """
+    def _parse_redemption_ladder(self, fees_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], bool]:
+        redemption_ladder = fees_data.get("redemption_ladder")
+        if redemption_ladder and isinstance(redemption_ladder, list) and len(redemption_ladder) > 0:
+            return redemption_ladder, False
+
         base_redemption_fee = fees_data.get("redemption_fee")
-        
         if base_redemption_fee is not None:
             ladder = []
             for item in self.DEFAULT_REDEMPTION_LADDER:
@@ -226,10 +233,11 @@ class CostAgent(BaseAgent):
                 if item["fee_rate"] > 0:
                     ratio = float(base_redemption_fee) / 0.005
                     adjusted_item["fee_rate"] = round(item["fee_rate"] * ratio, 4)
+                adjusted_item["is_estimated"] = True
                 ladder.append(adjusted_item)
-            return ladder
-        
-        return self.DEFAULT_REDEMPTION_LADDER
+            return ladder, True
+
+        return self.DEFAULT_REDEMPTION_LADDER, True
     
     def _build_cost_matrix(
         self,

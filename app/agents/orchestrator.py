@@ -18,6 +18,8 @@ from app.agents.cost import CostAgent
 from app.agents.sentiment import SentimentAgent
 from app.agents.decision import DecisionAgent
 from app.data_sources.manager import datasource_manager
+from app.core.data_quality import validate_nav_history, validate_fund_info, validate_holdings, validate_fees
+from app.core.data_provenance import annotate_data_source
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +390,7 @@ class AgentOrchestrator:
         # 获取净值历史数据
         try:
             end_date = date.today()
-            start_date = end_date - timedelta(days=365)
+            start_date = end_date - timedelta(days=365 * 3)
             nav_history = await datasource_manager.get_nav_history(
                 normalized_code, start_date, end_date
             )
@@ -487,6 +489,43 @@ class AgentOrchestrator:
             context["manager_info"] = {}
             context["data_status"]["manager_info"] = f"error: {str(e)}"
         
+        nav_history = context.get("nav_history", [])
+        if nav_history:
+            quality_report = validate_nav_history(nav_history)
+            if quality_report.has_warnings:
+                for w in quality_report.warnings:
+                    logger.warning(f"净值数据质量警告: {w['message']}")
+
+        fund_info = context.get("fund_info", {})
+        holdings = context.get("holdings", {})
+        fees = context.get("fees", {})
+        manager_info = context.get("manager_info", {})
+
+        if fund_info:
+            fund_info = annotate_data_source(fund_info, "fund_info")
+            context["fund_info"] = fund_info
+        if nav_history:
+            nav_history_annotated = {"records": nav_history, "count": len(nav_history)}
+            annotate_data_source(nav_history_annotated, "nav_history")
+            nav_history = nav_history_annotated
+        if holdings:
+            holdings = annotate_data_source(holdings, "holdings")
+            context["holdings"] = holdings
+        if fees:
+            fees = annotate_data_source(fees, "fees")
+            context["fees"] = fees
+        if manager_info:
+            manager_info = annotate_data_source(manager_info, "fund_manager")
+            context["manager_info"] = manager_info
+
+        context["shared_data"] = {
+            "nav_history_3y": nav_history,
+            "fund_info": fund_info,
+            "holdings": holdings,
+            "fees": fees,
+            "fund_manager": manager_info,
+        }
+
         # 记录数据获取摘要
         data_summary = {k: v for k, v in context["data_status"].items()}
         logger.info(f"数据获取摘要: {data_summary}")

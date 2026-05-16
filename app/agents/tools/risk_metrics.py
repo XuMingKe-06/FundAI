@@ -13,6 +13,10 @@ from app.agents.tools.base import (
     ToolCategory, 
     register_tool
 )
+from app.core.calculations import (
+    calculate_volatility, calculate_max_drawdown,
+    calculate_sharpe_ratio, calculate_beta
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +86,13 @@ class CalculateVolatilityTool(BaseTool):
             if len(returns) < 2:
                 return ToolResult.fail("收益率数据不足")
             
-            std_dev = np.std(returns, ddof=1)
-            annual_volatility = std_dev * np.sqrt(annualization_factor) * 100
+            annual_volatility = calculate_volatility(returns, annualization_factor)
+            daily_volatility = round(float(np.std(returns, ddof=1) * 100), 4)
             
             return ToolResult.ok(
                 data={
-                    "annual_volatility": round(float(annual_volatility), 2),
-                    "daily_volatility": round(float(std_dev * 100), 4),
+                    "annual_volatility": annual_volatility,
+                    "daily_volatility": daily_volatility,
                     "data_points": len(values),
                     "return_points": len(returns)
                 }
@@ -149,11 +153,9 @@ class CalculateMaxDrawdownTool(BaseTool):
             if len(values) < 2:
                 return ToolResult.fail("净值数据不足，至少需要2个数据点")
             
-            cumulative_max = np.maximum.accumulate(values)
-            drawdowns = (cumulative_max - values) / cumulative_max * 100
-            
-            max_drawdown = np.max(drawdowns)
-            max_dd_end_idx = np.argmax(drawdowns)
+            max_drawdown, max_dd_end_idx = calculate_max_drawdown(values)
+            if max_dd_end_idx is None:
+                max_dd_end_idx = 0
             
             max_dd_start_idx = 0
             peak_value = values[0]
@@ -250,12 +252,9 @@ class CalculateSharpeRatioTool(BaseTool):
             if len(returns) < 2:
                 return ToolResult.fail("收益率数据不足")
             
-            daily_rf = risk_free_rate / annualization_factor
-            excess_returns = returns - daily_rf
+            sharpe = calculate_sharpe_ratio(returns, risk_free_rate, annualization_factor)
             
-            mean_excess = np.mean(excess_returns)
             std_returns = np.std(returns, ddof=1)
-            
             if std_returns == 0:
                 return ToolResult.ok(
                     data={
@@ -266,16 +265,16 @@ class CalculateSharpeRatioTool(BaseTool):
                     }
                 )
             
-            sharpe = mean_excess / std_returns * np.sqrt(annualization_factor)
             annual_return = np.mean(returns) * annualization_factor
             annual_volatility = std_returns * np.sqrt(annualization_factor)
+            excess_return = np.mean(returns - risk_free_rate / annualization_factor) * annualization_factor
             
             return ToolResult.ok(
                 data={
                     "sharpe_ratio": round(float(sharpe), 2),
                     "annual_return": round(float(annual_return * 100), 2),
                     "annual_volatility": round(float(annual_volatility * 100), 2),
-                    "excess_return": round(float(mean_excess * annualization_factor * 100), 2),
+                    "excess_return": round(float(excess_return * 100), 2),
                     "data_points": len(values)
                 }
             )
@@ -356,10 +355,9 @@ class CalculateBetaTool(BaseTool):
             fund_returns = fund_returns[-min_len:]
             benchmark_returns = benchmark_returns[-min_len:]
             
-            covariance = np.cov(fund_returns, benchmark_returns)[0, 1]
-            benchmark_variance = np.var(benchmark_returns, ddof=1)
+            beta, correlation = calculate_beta(fund_returns, benchmark_returns)
             
-            if benchmark_variance == 0:
+            if beta is None:
                 return ToolResult.ok(
                     data={
                         "beta": 1.0,
@@ -369,9 +367,6 @@ class CalculateBetaTool(BaseTool):
                         "data_points": min_len
                     }
                 )
-            
-            beta = covariance / benchmark_variance
-            correlation = np.corrcoef(fund_returns, benchmark_returns)[0, 1]
             
             return ToolResult.ok(
                 data={

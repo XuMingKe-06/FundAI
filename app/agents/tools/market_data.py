@@ -71,16 +71,9 @@ class GetNewsSentimentTool(BaseTool):
             news_data = await datasource_manager.get_news_sentiment(fund_code, days)
             
             if news_data is None:
-                return ToolResult.ok(
-                    data={
-                        "total": 0,
-                        "positive": 0,
-                        "negative": 0,
-                        "neutral": 0,
-                        "sentiment_score": 0.0,
-                        "key_news": [],
-                        "note": "暂无新闻数据"
-                    }
+                return ToolResult.fail(
+                    "新闻舆情数据源暂不可用，无法获取该基金的新闻数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -144,13 +137,9 @@ class GetFundFlowTool(BaseTool):
             flow_data = await datasource_manager.get_fund_flow(fund_code)
             
             if flow_data is None:
-                return ToolResult.ok(
-                    data={
-                        "net_inflow_5d": 0.0,
-                        "net_inflow_20d": 0.0,
-                        "trend": "未知",
-                        "note": "暂无资金流向数据"
-                    }
+                return ToolResult.fail(
+                    "资金流向数据源暂不可用，无法获取该基金的资金流向数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -213,13 +202,9 @@ class GetSocialHeatTool(BaseTool):
             heat_data = await datasource_manager.get_social_heat(fund_code)
             
             if heat_data is None:
-                return ToolResult.ok(
-                    data={
-                        "heat_ratio": 1.0,
-                        "level": "medium",
-                        "trend": "平稳",
-                        "note": "暂无社交媒体热度数据"
-                    }
+                return ToolResult.fail(
+                    "社交媒体热度数据源暂不可用，无法获取该基金的热度数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -282,17 +267,9 @@ class GetInstitutionalViewsTool(BaseTool):
             views_data = await datasource_manager.get_institutional_views(fund_code)
             
             if views_data is None:
-                return ToolResult.ok(
-                    data={
-                        "buy": 0,
-                        "overweight": 0,
-                        "neutral": 0,
-                        "underweight": 0,
-                        "sell": 0,
-                        "total_reports": 0,
-                        "consensus": "中性",
-                        "note": "暂无机构观点数据"
-                    }
+                return ToolResult.fail(
+                    "机构观点数据源暂不可用，无法获取该基金的机构评级数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -369,13 +346,9 @@ class GetMarketIndexTool(BaseTool):
             )
             
             if not index_data:
-                return ToolResult.ok(
-                    data={
-                        "index_code": index_code,
-                        "index_name": self._get_index_name(index_code),
-                        "data": [],
-                        "note": "暂无指数数据"
-                    }
+                return ToolResult.fail(
+                    f"无法获取指数 {index_code} 的行情数据",
+                    metadata={"index_code": index_code, "data_available": False}
                 )
             
             return ToolResult.ok(

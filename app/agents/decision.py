@@ -38,6 +38,19 @@ class DecisionAgent(BaseAgent):
         """
         agent_results = context.get("agent_results", {})
         
+        insufficient_agents = []
+        for agent_type, result in agent_results.items():
+            if isinstance(result, dict):
+                if result.get("data_sufficient") is False or result.get("data_sufficiency") == "insufficient":
+                    insufficient_agents.append(agent_type)
+        
+        if insufficient_agents:
+            await self.add_thinking(
+                f"注意：以下智能体数据不足：{', '.join(insufficient_agents)}，"
+                f"决策结论的可靠性可能受影响"
+            )
+            context["insufficient_agents"] = insufficient_agents
+        
         await self.add_thinking("正在汇总各分析智能体结果...")
         
         await self.add_thinking(
@@ -54,7 +67,7 @@ class DecisionAgent(BaseAgent):
             fund_code=fund_code,
             context=context,
             use_rag=True,
-            use_tools=False
+            use_tools=True
         )
         
         # 确保决策智能体的 summary 包含完整的结构化信息

@@ -10,6 +10,10 @@ import logging
 
 from app.agents.base import BaseAgent
 from app.data_sources.manager import datasource_manager
+from app.core.calculations import (
+    calculate_ma, calculate_ma_slope, calculate_macd,
+    calculate_rsi, calculate_percentile
+)
 
 
 logger = logging.getLogger(__name__)
@@ -20,157 +24,7 @@ class TechnicalAgent(BaseAgent):
     
     def __init__(self):
         super().__init__("technical", "技术分析师")
-    
-    def _calculate_ma(self, values: List[float], period: int) -> Optional[float]:
-        """
-        计算移动平均线
-        
-        Args:
-            values: 净值数据列表（按时间升序排列）
-            period: 移动平均周期
-            
-        Returns:
-            移动平均值，数据不足时返回 None
-        """
-        if len(values) < period:
-            return None
-        recent_values = values[-period:]
-        return sum(recent_values) / period
-    
-    def _calculate_macd(self, values: List[float]) -> Dict[str, Any]:
-        """
-        计算 MACD 指标（参数：12, 26, 9）
-        
-        MACD = EMA(12) - EMA(26)
-        Signal = EMA(MACD, 9)
-        Histogram = MACD - Signal
-        
-        Args:
-            values: 净值数据列表（按时间升序排列）
-            
-        Returns:
-            包含 macd, signal, histogram, signal_type 的字典
-        """
-        if len(values) < 26:
-            return {
-                "macd": None,
-                "signal": None,
-                "histogram": None,
-                "signal_type": "数据不足"
-            }
-        
-        def calculate_ema(data: List[float], period: int) -> List[float]:
-            """计算指数移动平均"""
-            ema = []
-            multiplier = 2 / (period + 1)
-            sma = sum(data[:period]) / period
-            ema.append(sma)
-            for i in range(period, len(data)):
-                ema_value = (data[i] - ema[-1]) * multiplier + ema[-1]
-                ema.append(ema_value)
-            return ema
-        
-        ema_12 = calculate_ema(values, 12)
-        ema_26 = calculate_ema(values, 26)
-        
-        macd_line = []
-        for i in range(len(ema_26)):
-            ema12_idx = i + (26 - 12)
-            if ema12_idx < len(ema_12):
-                macd_line.append(ema_12[ema12_idx] - ema_26[i])
-        
-        if len(macd_line) < 9:
-            return {
-                "macd": None,
-                "signal": None,
-                "histogram": None,
-                "signal_type": "数据不足"
-            }
-        
-        signal_line = calculate_ema(macd_line, 9)
-        
-        current_macd = macd_line[-1]
-        current_signal = signal_line[-1]
-        current_histogram = current_macd - current_signal
-        
-        if len(macd_line) >= 2 and len(signal_line) >= 2:
-            prev_macd = macd_line[-2]
-            prev_signal = signal_line[-2]
-            
-            if prev_macd <= prev_signal and current_macd > current_signal:
-                signal_type = "金叉"
-            elif prev_macd >= prev_signal and current_macd < current_signal:
-                signal_type = "死叉"
-            elif current_macd > current_signal:
-                signal_type = "多头"
-            else:
-                signal_type = "空头"
-        else:
-            signal_type = "多头" if current_macd > current_signal else "空头"
-        
-        return {
-            "macd": round(current_macd, 6),
-            "signal": round(current_signal, 6),
-            "histogram": round(current_histogram, 6),
-            "signal_type": signal_type
-        }
-    
-    def _calculate_rsi(self, values: List[float], period: int = 14) -> Optional[float]:
-        """
-        计算 RSI 指标
-        
-        RSI = 100 - 100 / (1 + RS)
-        RS = 平均上涨幅度 / 平均下跌幅度
-        
-        Args:
-            values: 净值数据列表（按时间升序排列）
-            period: RSI 计算周期，默认14
-            
-        Returns:
-            RSI 值（0-100），数据不足时返回 None
-        """
-        if len(values) < period + 1:
-            return None
-        
-        changes = []
-        for i in range(1, len(values)):
-            changes.append(values[i] - values[i-1])
-        
-        recent_changes = changes[-(period):]
-        
-        gains = [c for c in recent_changes if c > 0]
-        losses = [-c for c in recent_changes if c < 0]
-        
-        avg_gain = sum(gains) / period if gains else 0
-        avg_loss = sum(losses) / period if losses else 0
-        
-        if avg_loss == 0:
-            return 100.0
-        
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return round(rsi, 2)
-    
-    def _calculate_percentile(self, current_value: float, historical_values: List[float]) -> float:
-        """
-        计算当前值在历史数据中的分位数
-        
-        Args:
-            current_value: 当前净值
-            historical_values: 历史净值列表
-            
-        Returns:
-            分位数（0-100）
-        """
-        if not historical_values:
-            return 50.0
-        
-        count_below = sum(1 for v in historical_values if v < current_value)
-        percentile = (count_below / len(historical_values)) * 100
-        
-        return round(percentile, 1)
-    
+
     def _get_rsi_status(self, rsi: Optional[float]) -> str:
         """获取RSI状态描述"""
         if rsi is None:
@@ -227,6 +81,13 @@ class TechnicalAgent(BaseAgent):
             start_date=start_date,
             end_date=end_date
         )
+
+        from app.core.data_quality import validate_nav_history
+
+        quality_report = validate_nav_history(nav_history)
+        if quality_report.has_warnings:
+            for w in quality_report.warnings:
+                await self.add_thinking(f"数据质量警告: {w['message']}")
 
         # 保存完整净值历史到实例属性，供 save_decision_report 构建走势图使用
         self._full_nav_history = nav_history
@@ -300,9 +161,9 @@ class TechnicalAgent(BaseAgent):
         current_nav = nav_values[-1]
         
         await self.add_thinking("正在计算均线系统...")
-        ma20 = self._calculate_ma(nav_values, 20)
-        ma60 = self._calculate_ma(nav_values, 60)
-        ma120 = self._calculate_ma(nav_values, 120)
+        ma20 = calculate_ma(nav_values, 20)
+        ma60 = calculate_ma(nav_values, 60)
+        ma120 = calculate_ma(nav_values, 120)
         ma_trend = self._get_ma_trend(current_nav, ma20, ma60, ma120)
         
         await self.add_thinking(
@@ -312,7 +173,7 @@ class TechnicalAgent(BaseAgent):
         )
         
         await self.add_thinking("正在计算MACD指标...")
-        macd_result = self._calculate_macd(nav_values)
+        macd_result = calculate_macd(nav_values)
         
         await self.add_thinking(
             f"MACD信号: {macd_result['signal_type']}, "
@@ -320,13 +181,13 @@ class TechnicalAgent(BaseAgent):
         )
         
         await self.add_thinking("正在计算RSI指标...")
-        rsi = self._calculate_rsi(nav_values, 14)
+        rsi = calculate_rsi(nav_values, 14)
         rsi_status = self._get_rsi_status(rsi)
         
         await self.add_thinking(f"RSI(14)={rsi if rsi else 'N/A'}，处于{rsi_status}")
         
         await self.add_thinking("正在计算估值分位数...")
-        percentile = self._calculate_percentile(current_nav, nav_values)
+        percentile = calculate_percentile(current_nav, nav_values)
         valuation_status = self._get_valuation_status(percentile)
         
         await self.add_thinking(f"当前估值处于近3年{percentile}%分位，属于{valuation_status}")
@@ -341,7 +202,7 @@ class TechnicalAgent(BaseAgent):
                 "change_pct": round(float(change_pct), 2) if change_pct else None
             })
         
-        return {
+        result = {
             "nav_data": {
                 "current_nav": round(current_nav, 4),
                 "nav_date": nav_history[-1].get("date"),
@@ -366,6 +227,12 @@ class TechnicalAgent(BaseAgent):
             },
             "data_sufficient": True
         }
+
+        from app.core.data_provenance import annotate_data_source
+
+        result = annotate_data_source(result, "technical_indicators")
+
+        return result
     
     async def analyze(self, fund_code: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -402,7 +269,10 @@ class TechnicalAgent(BaseAgent):
         except Exception as e:
             logger.error(f"技术分析异常: {e}", exc_info=True)
             await self.add_thinking(f"技术分析过程中发生错误: {str(e)}")
-            self.score = 3.0
+            self.score = None
+            self.data_sufficient = False
+            self.confidence = 1
+            self.data_sufficiency = "insufficient"
             self.summary = "技术分析异常，请稍后重试"
             self.details = {
                 "trend_direction": "未知",
