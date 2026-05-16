@@ -111,9 +111,7 @@ function formatDuration(agent: Agent) {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 100px;
-  max-width: 120px;
-  flex-shrink: 0;
+  min-width: 120px;
 }
 
 .swimlane__name {
@@ -150,8 +148,6 @@ function formatDuration(agent: Agent) {
   border-radius: var(--radius-full);
   overflow: hidden;
   position: relative;
-  margin-right: var(--space-4);
-  min-width: 0;
 }
 
 .swimlane__bar {

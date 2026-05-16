@@ -111,9 +111,7 @@ defineProps<{
 @import '~/assets/css/markdown.css';
 
 .agent-thinking-container {
-  width: auto;
-  margin-right: var(--space-3);
-  margin-bottom: var(--space-3);
+  width: 100%;
   padding: 24px;
   text-align: left;
 }
