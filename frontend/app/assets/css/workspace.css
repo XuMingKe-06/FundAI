@@ -94,6 +94,7 @@
   top: var(--header-height);
   left: 0;
   bottom: 0;
+  z-index: var(--z-sticky);
   transition: width var(--transition-slow), background-color var(--transition-base), border-color var(--transition-base);
   overflow: hidden;
 }
@@ -198,12 +199,24 @@
 /* 主内容区 */
 .main-content {
   flex: 1;
+  min-width: 0;
   padding: var(--space-2) var(--space-3) var(--space-3);
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-left: var(--sidebar-width-left-collapsed);
+  margin-right: var(--sidebar-width-right-collapsed);
   transition: margin var(--transition-slow);
+}
+
+.main-content.left-expanded {
+  margin-left: var(--sidebar-width-left);
+}
+
+.main-content.right-expanded {
+  margin-right: var(--sidebar-width-right);
 }
 
 /* 决策概览 */
@@ -651,6 +664,7 @@
   top: var(--header-height);
   right: 0;
   bottom: 0;
+  z-index: var(--z-sticky);
   overflow-y: auto;
   transition: width var(--transition-slow), background-color var(--transition-base), border-color var(--transition-base);
 }
@@ -815,11 +829,11 @@
     width: 240px;
   }
 
-  .main-content:not([style*="sidebar-width-left-collapsed"]) {
+  .main-content.left-expanded {
     margin-left: 200px;
   }
 
-  .main-content:not([style*="sidebar-width-right-collapsed"]) {
+  .main-content.right-expanded {
     margin-right: 240px;
   }
 

@@ -30,7 +30,7 @@
       />
 
       <!-- 中间主内容区 -->
-      <main class="main-content" :style="mainContentStyle">
+      <main class="main-content" :class="{ 'left-expanded': !leftSidebarCollapsed, 'right-expanded': !rightSidebarCollapsed }">
         <!-- 多标签页栏 -->
         <WorkspaceTabBar
           v-if="openTabs.length > 0"
@@ -153,20 +153,6 @@ const headerFundInput = ref('')
 const sidebarSearch = ref('')
 const leftSidebarCollapsed = ref(false)
 const rightSidebarCollapsed = ref(false)
-
-/* ========== 侧边栏折叠计算 ========== */
-const mainContentStyle = computed(() => {
-  const leftW = leftSidebarCollapsed.value
-    ? 'var(--sidebar-width-left-collapsed)'
-    : 'var(--sidebar-width-left)'
-  const rightW = rightSidebarCollapsed.value
-    ? 'var(--sidebar-width-right-collapsed)'
-    : 'var(--sidebar-width-right)'
-  return {
-    marginLeft: leftW,
-    marginRight: rightW,
-  }
-})
 
 /* ========== 多标签页管理 ========== */
 interface TabInfo {

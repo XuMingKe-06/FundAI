@@ -200,15 +200,8 @@
   --short-term-color: var(--color-short-term);
   --long-term-color: var(--color-long-term);
   --bg-color: var(--bg-base);
-  --bg-secondary: var(--bg-secondary);
-  --bg-tertiary: var(--bg-tertiary);
   --card-bg: var(--bg-elevated);
   --border-color: var(--border-base);
-  --text-primary: var(--text-primary);
-  --text-secondary: var(--text-secondary);
-  --text-muted: var(--text-muted);
-  --sidebar-width-left: var(--sidebar-width-left);
-  --sidebar-width-right: var(--sidebar-width-right);
 }
 
 /* ==================== 深色主题 ==================== */
