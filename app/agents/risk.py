@@ -1,9 +1,3 @@
-"""
-风险分析师智能体
-
-负责波动率分析、最大回撤评估、夏普比率计算、风险等级划分
-通过LLM驱动进行专业风险评估
-"""
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import date, timedelta
 import numpy as np
@@ -14,7 +8,8 @@ from app.data_sources.manager import datasource_manager
 from app.core.calculations import (
     calculate_volatility, calculate_max_drawdown, calculate_current_drawdown,
     calculate_sharpe_ratio, calculate_sortino_ratio, calculate_calmar_ratio,
-    calculate_beta
+    calculate_beta, calculate_var, calculate_cvar, calculate_downside_risk,
+    stress_test
 )
 from app.core.data_quality import validate_nav_history, validate_holdings, check_data_timeliness
 from app.core.data_provenance import annotate_data_source, annotate_stale_data
@@ -23,8 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 class RiskAgent(BaseAgent):
-    """风险分析师智能体"""
-    
     def __init__(self):
         super().__init__("risk", "风险分析师")
     
@@ -32,15 +25,6 @@ class RiskAgent(BaseAgent):
         self, 
         holdings: Optional[Dict[str, Any]]
     ) -> Tuple[float, float, int, List[str]]:
-        """
-        计算集中度风险
-        
-        Args:
-            holdings: 持仓数据
-            
-        Returns:
-            (前十大持仓占比, 单一行业最大占比, 行业数量, 风险提示列表)
-        """
         alerts = []
         top10_concentration = 0.0
         single_industry_max = 0.0
@@ -83,16 +67,6 @@ class RiskAgent(BaseAgent):
         start_date: date, 
         end_date: date
     ) -> np.ndarray:
-        """
-        获取基准（沪深300）收益率数据
-        
-        Args:
-            start_date: 开始日期
-            end_date: 结束日期
-            
-        Returns:
-            基准日收益率数组
-        """
         try:
             await self.add_thinking("正在获取沪深300基准数据...")
             benchmark_data = await datasource_manager.get_nav_history(
@@ -125,16 +99,6 @@ class RiskAgent(BaseAgent):
         nav_history: List[Dict[str, Any]],
         max_dd_idx: int
     ) -> Optional[int]:
-        """
-        估算最大回撤恢复天数
-        
-        Args:
-            nav_history: 净值历史数据
-            max_dd_idx: 最大回撤位置索引
-            
-        Returns:
-            恢复天数（如果已恢复）或 None
-        """
         if not nav_history or max_dd_idx is None or max_dd_idx >= len(nav_history):
             return None
         
@@ -167,16 +131,6 @@ class RiskAgent(BaseAgent):
         fund_code: str,
         fund_info: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        准备风险指标数据
-        
-        Args:
-            fund_code: 基金代码
-            fund_info: 基金基础信息
-            
-        Returns:
-            风险指标字典
-        """
         end_date = date.today()
         start_date = end_date - timedelta(days=365)
         
@@ -254,6 +208,27 @@ class RiskAgent(BaseAgent):
                 await self.add_thinking(f"Beta: {beta}（{beta_desc}），相关系数: {correlation}")
             else:
                 await self.add_thinking("基准数据不足，无法计算Beta系数")
+
+            await self.add_thinking("正在计算VaR和CVaR...")
+            var_95 = calculate_var(returns, 0.95)
+            var_99 = calculate_var(returns, 0.99)
+            cvar_95 = calculate_cvar(returns, 0.95)
+            if var_95 is not None:
+                await self.add_thinking(
+                    f"VaR(95%): {var_95 * 100:.2f}%, VaR(99%): {var_99 * 100:.2f}%, "
+                    f"CVaR(95%): {cvar_95 * 100:.2f}%"
+                )
+
+            await self.add_thinking("正在计算下行风险...")
+            downside = calculate_downside_risk(returns)
+            if downside is not None:
+                await self.add_thinking(f"年化下行风险: {downside}%")
+
+            await self.add_thinking("正在执行压力测试...")
+            stress_result = stress_test(nav_values)
+            if stress_result.get("data_sufficient", False):
+                scenario_names = list(stress_result.get("scenarios", {}).keys())
+                await self.add_thinking(f"压力测试完成，模拟场景: {', '.join(scenario_names)}")
             
             volatility_trend = "稳定"
             if len(returns) >= 60:
@@ -284,7 +259,12 @@ class RiskAgent(BaseAgent):
                 "sortino_ratio_note": "无下行风险" if sortino_ratio is None else None,
                 "beta": beta,
                 "correlation": correlation,
-                "benchmark": "沪深300"
+                "benchmark": "沪深300",
+                "var_95": round(var_95 * 100, 4) if var_95 is not None else None,
+                "var_99": round(var_99 * 100, 4) if var_99 is not None else None,
+                "cvar_95": round(cvar_95 * 100, 4) if cvar_95 is not None else None,
+                "downside_risk": downside,
+                "stress_test": stress_result if stress_result.get("data_sufficient") else None,
             }
             annotate_data_source(result, "risk_metrics")
             return result
@@ -301,15 +281,6 @@ class RiskAgent(BaseAgent):
         self,
         fund_code: str
     ) -> Dict[str, Any]:
-        """
-        准备持仓集中度数据
-        
-        Args:
-            fund_code: 基金代码
-            
-        Returns:
-            持仓数据字典
-        """
         await self.add_thinking("正在分析持仓集中度风险...")
         
         try:
@@ -353,19 +324,6 @@ class RiskAgent(BaseAgent):
             }
     
     async def analyze(self, fund_code: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        执行风险分析
-        
-        通过LLM驱动进行专业风险评估，
-        风险指标计算结果作为上下文数据提供给LLM
-        
-        Args:
-            fund_code: 基金代码
-            context: 分析上下文
-            
-        Returns:
-            分析结果字典
-        """
         fund_info = context.get("fund_info", {})
         
         risk_metrics = await self._prepare_risk_metrics(fund_code, fund_info)
@@ -413,13 +371,20 @@ class RiskAgent(BaseAgent):
             use_tools=True
         )
         
-        # 确保 risk_alerts 存入 self.details，供报告生成使用
         if self.details and "risk_alerts" not in self.details:
             self.details["risk_alerts"] = risk_alerts
         elif not self.details:
             self.details = {"risk_alerts": risk_alerts}
         
-        # 兜底逻辑：若 LLM 未返回 summary，根据风险指标生成默认摘要
+        if self.details and risk_metrics.get("var_95") is not None:
+            self.details["var_95"] = risk_metrics["var_95"]
+            self.details["var_99"] = risk_metrics["var_99"]
+            self.details["cvar_95"] = risk_metrics["cvar_95"]
+            self.details["downside_risk"] = risk_metrics["downside_risk"]
+        
+        if self.details and risk_metrics.get("stress_test"):
+            self.details["stress_test"] = risk_metrics["stress_test"]
+        
         if not self.summary:
             volatility = risk_metrics.get("annual_volatility", 0)
             max_dd = risk_metrics.get("max_drawdown", 0)

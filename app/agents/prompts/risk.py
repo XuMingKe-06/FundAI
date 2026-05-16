@@ -38,6 +38,9 @@ class RiskPromptTemplate(PromptTemplate):
                 "最大回撤计算与下行风险分析",
                 "夏普比率、卡玛比率等风险调整收益指标计算",
                 "Beta系数与系统性风险分析",
+                "VaR在险价值与CVaR条件在险价值计算",
+                "压力测试与极端情景分析",
+                "下行风险分析",
                 "持仓集中度风险识别"
             ]
         )
@@ -58,6 +61,18 @@ class RiskPromptTemplate(PromptTemplate):
             {
                 "name": "Beta系数分析",
                 "description": "计算相对于基准的Beta系数，评估系统性风险暴露"
+            },
+            {
+                "name": "VaR与CVaR分析",
+                "description": "计算95%和99%置信度下的在险价值，评估极端损失风险"
+            },
+            {
+                "name": "压力测试",
+                "description": "模拟2015股灾、2020疫情等极端市场情景，评估基金抗风险能力"
+            },
+            {
+                "name": "下行风险分析",
+                "description": "计算仅考虑负收益的下行风险指标，评估亏损概率"
             },
             {
                 "name": "集中度风险分析",

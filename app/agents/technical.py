@@ -1,9 +1,3 @@
-"""
-技术分析师智能体
-
-负责均线系统分析、MACD指标解读、RSI指标分析、趋势判断
-通过LLM进行综合技术分析和评分
-"""
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date, timedelta
 import logging
@@ -12,21 +6,20 @@ from app.agents.base import BaseAgent
 from app.data_sources.manager import datasource_manager
 from app.core.calculations import (
     calculate_ma, calculate_ma_slope, calculate_macd,
-    calculate_rsi, calculate_percentile
+    calculate_rsi, calculate_percentile, calculate_bollinger_bands,
+    calculate_kdj_from_nav, calculate_support_resistance
 )
+from app.core.data_provenance import annotate_data_source
 
 
 logger = logging.getLogger(__name__)
 
 
 class TechnicalAgent(BaseAgent):
-    """技术分析师智能体"""
-    
     def __init__(self):
         super().__init__("technical", "技术分析师")
 
     def _get_rsi_status(self, rsi: Optional[float]) -> str:
-        """获取RSI状态描述"""
         if rsi is None:
             return "数据不足"
         if rsi < 30:
@@ -39,7 +32,6 @@ class TechnicalAgent(BaseAgent):
             return "中性偏强" if rsi > 50 else "中性偏弱"
     
     def _get_valuation_status(self, percentile: float) -> str:
-        """获取估值状态描述"""
         if percentile < 20:
             return "低估区间"
         elif percentile > 80:
@@ -53,24 +45,14 @@ class TechnicalAgent(BaseAgent):
     
     def _get_ma_trend(self, current_nav: float, ma20: Optional[float], 
                        ma60: Optional[float], ma120: Optional[float]) -> str:
-        """获取均线趋势描述"""
         if ma20 and ma60 and ma120:
             if current_nav > ma20 > ma60 > ma120:
                 return "多头排列"
             elif current_nav < ma20 < ma60 < ma120:
                 return "空头排列"
         return "震荡"
-    
+
     async def _prepare_technical_context(self, fund_code: str) -> Dict[str, Any]:
-        """
-        准备技术分析上下文数据
-        
-        Args:
-            fund_code: 基金代码
-            
-        Returns:
-            包含技术指标数据的上下文字典
-        """
         await self.add_thinking("正在获取基金净值历史数据...")
         
         end_date = date.today()
@@ -89,7 +71,6 @@ class TechnicalAgent(BaseAgent):
             for w in quality_report.warnings:
                 await self.add_thinking(f"数据质量警告: {w['message']}")
 
-        # 保存完整净值历史到实例属性，供 save_decision_report 构建走势图使用
         self._full_nav_history = nav_history
         
         if not nav_history or len(nav_history) < 120:
@@ -117,7 +98,10 @@ class TechnicalAgent(BaseAgent):
                     "rsi_14": None,
                     "rsi_status": "数据不足",
                     "valuation_percentile": None,
-                    "valuation_status": "数据不足"
+                    "valuation_status": "数据不足",
+                    "bollinger": None,
+                    "kdj": None,
+                    "support_resistance": None,
                 },
                 "data_sufficient": False
             }
@@ -153,7 +137,10 @@ class TechnicalAgent(BaseAgent):
                     "rsi_14": None,
                     "rsi_status": "数据不足",
                     "valuation_percentile": None,
-                    "valuation_status": "数据不足"
+                    "valuation_status": "数据不足",
+                    "bollinger": None,
+                    "kdj": None,
+                    "support_resistance": None,
                 },
                 "data_sufficient": False
             }
@@ -191,6 +178,29 @@ class TechnicalAgent(BaseAgent):
         valuation_status = self._get_valuation_status(percentile)
         
         await self.add_thinking(f"当前估值处于近3年{percentile}%分位，属于{valuation_status}")
+
+        await self.add_thinking("正在计算布林带...")
+        bollinger = calculate_bollinger_bands(nav_values, 20, 2.0)
+        if bollinger.get("data_sufficient", False):
+            await self.add_thinking(
+                f"布林带: 上轨={bollinger['upper']}, 中轨={bollinger['middle']}, "
+                f"下轨={bollinger['lower']}，信号: {bollinger['signal']}"
+            )
+
+        await self.add_thinking("正在计算KDJ指标...")
+        kdj = calculate_kdj_from_nav(nav_values, 9, 3, 3)
+        if kdj.get("data_sufficient", False):
+            await self.add_thinking(
+                f"KDJ: K={kdj['k']}, D={kdj['d']}, J={kdj['j']}，信号: {kdj['signal']}"
+            )
+
+        await self.add_thinking("正在识别支撑位和阻力位...")
+        sr = calculate_support_resistance(nav_values, 3, 20)
+        if sr.get("data_sufficient", False):
+            await self.add_thinking(
+                f"支撑位: {sr['support_levels']}, 阻力位: {sr['resistance_levels']}，"
+                f"当前位置: {sr['current_position']}"
+            )
         
         recent_nav = []
         for item in nav_history[-10:]:
@@ -223,30 +233,19 @@ class TechnicalAgent(BaseAgent):
                 "rsi_14": rsi,
                 "rsi_status": rsi_status,
                 "valuation_percentile": percentile,
-                "valuation_status": valuation_status
+                "valuation_status": valuation_status,
+                "bollinger": bollinger if bollinger.get("data_sufficient") else None,
+                "kdj": kdj if kdj.get("data_sufficient") else None,
+                "support_resistance": sr if sr.get("data_sufficient") else None,
             },
             "data_sufficient": True
         }
-
-        from app.core.data_provenance import annotate_data_source
 
         result = annotate_data_source(result, "technical_indicators")
 
         return result
     
     async def analyze(self, fund_code: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        执行技术分析
-        
-        通过LLM进行综合技术分析和评分
-        
-        Args:
-            fund_code: 基金代码
-            context: 上下文信息
-            
-        Returns:
-            分析结果字典
-        """
         try:
             technical_context = await self._prepare_technical_context(fund_code)
             

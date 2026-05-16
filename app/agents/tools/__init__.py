@@ -42,6 +42,25 @@ from app.agents.tools.market_data import (
     GetMarketIndexTool
 )
 
+from app.agents.tools.advanced_technical import (
+    CalculateBollingerTool,
+    CalculateKDJTool,
+    CalculateSupportResistanceTool
+)
+
+from app.agents.tools.advanced_risk import (
+    CalculateVaRTool,
+    StressTestTool,
+    CalculateDownsideRiskTool
+)
+
+from app.agents.tools.advanced_analysis import (
+    CalculateStyleBoxTool,
+    CompareShareClassTool,
+    CalculateDCATool,
+    ScenarioAnalysisTool
+)
+
 
 __all__ = [
     "BaseTool",
@@ -67,56 +86,49 @@ __all__ = [
     "GetFundFlowTool",
     "GetSocialHeatTool",
     "GetInstitutionalViewsTool",
-    "GetMarketIndexTool"
+    "GetMarketIndexTool",
+    "CalculateBollingerTool",
+    "CalculateKDJTool",
+    "CalculateSupportResistanceTool",
+    "CalculateVaRTool",
+    "StressTestTool",
+    "CalculateDownsideRiskTool",
+    "CalculateStyleBoxTool",
+    "CompareShareClassTool",
+    "CalculateDCATool",
+    "ScenarioAnalysisTool",
 ]
 
 
 def get_available_tools() -> list:
-    """
-    获取所有可用工具名称列表
-    
-    Returns:
-        工具名称列表
-    """
     registry = get_tool_registry()
     return registry.list_tools()
 
 
 def get_tools_info() -> list:
-    """
-    获取所有工具的信息摘要
-    
-    Returns:
-        工具信息列表
-    """
     registry = get_tool_registry()
     return registry.list_tools_info()
 
 
 def get_tools_for_agent(agent_type: str) -> list:
-    """
-    根据智能体类型获取推荐工具
-    
-    Args:
-        agent_type: 智能体类型（fundamental/technical/risk/cost/sentiment/decision）
-        
-    Returns:
-        推荐的工具名称列表
-    """
     tool_mapping = {
         "fundamental": [
             "get_fund_info",
             "get_nav_history",
             "get_holdings",
             "get_fund_manager",
-            "get_fund_fees"
+            "get_fund_fees",
+            "calculate_style_box",
         ],
         "technical": [
             "get_nav_history",
             "calculate_ma",
             "calculate_macd",
             "calculate_rsi",
-            "calculate_percentile"
+            "calculate_percentile",
+            "calculate_bollinger",
+            "calculate_kdj",
+            "calculate_support_resistance",
         ],
         "risk": [
             "get_nav_history",
@@ -124,12 +136,16 @@ def get_tools_for_agent(agent_type: str) -> list:
             "calculate_volatility",
             "calculate_max_drawdown",
             "calculate_sharpe_ratio",
-            "calculate_beta"
+            "calculate_beta",
+            "calculate_var",
+            "stress_test",
+            "calculate_downside_risk",
         ],
         "cost": [
             "get_fund_info",
             "get_fund_fees",
-            "get_nav_history"
+            "get_nav_history",
+            "compare_share_class",
         ],
         "sentiment": [
             "get_news_sentiment",
@@ -141,14 +157,15 @@ def get_tools_for_agent(agent_type: str) -> list:
         "decision": [
             "get_fund_info",
             "get_nav_history",
-            "get_market_index"
+            "get_market_index",
+            "calculate_dca",
+            "scenario_analysis",
         ]
     }
     
     return tool_mapping.get(agent_type, [])
 
 
-# 工具名中文映射
 TOOL_CHINESE_NAMES: dict = {
     "get_fund_info": "获取基金基础信息",
     "get_nav_history": "获取净值历史数据",
@@ -168,17 +185,18 @@ TOOL_CHINESE_NAMES: dict = {
     "calculate_max_drawdown": "计算最大回撤",
     "calculate_sharpe_ratio": "计算夏普比率",
     "calculate_beta": "计算Beta系数",
+    "calculate_bollinger": "计算布林带",
+    "calculate_kdj": "计算KDJ指标",
+    "calculate_support_resistance": "计算支撑阻力位",
+    "calculate_var": "计算VaR在险价值",
+    "stress_test": "执行压力测试",
+    "calculate_downside_risk": "计算下行风险",
+    "calculate_style_box": "计算风格箱",
+    "compare_share_class": "对比A类C类份额",
+    "calculate_dca": "计算定投策略",
+    "scenario_analysis": "情景分析",
 }
 
 
 def get_tool_chinese_name(tool_name: str) -> str:
-    """
-    获取工具的中文名称
-    
-    Args:
-        tool_name: 英文工具名
-        
-    Returns:
-        中文名称，若未匹配则返回原始英文名
-    """
     return TOOL_CHINESE_NAMES.get(tool_name, tool_name)

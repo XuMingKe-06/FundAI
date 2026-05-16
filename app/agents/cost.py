@@ -9,6 +9,8 @@ import logging
 
 from app.agents.base import BaseAgent
 from app.data_sources.manager import datasource_manager
+from app.core.calculations.share_class import estimate_share_class_fees
+from app.core.data_provenance import annotate_data_source, annotate_estimated_data
 
 
 logger = logging.getLogger(__name__)
@@ -197,7 +199,18 @@ class CostAgent(BaseAgent):
         cost_matrix = self._build_cost_matrix(purchase_fee, redemption_ladder)
         
         feasibility_analysis = self._prepare_feasibility_data(cost_matrix, expected_return)
-        
+
+        share_class_comparison = None
+        if fees_data:
+            try:
+                share_class_comparison = estimate_share_class_fees(fees_data)
+                if share_class_comparison.get("data_sufficient"):
+                    await self.add_thinking(
+                        f"A类/C类份额对比: {share_class_comparison['recommendation'].get('crossover_description', '未知')}"
+                    )
+            except Exception as e:
+                logger.warning(f"A类/C类份额对比计算失败: {e}")
+
         enhanced_context = {
             **context,
             "fund_info": fund_info,
@@ -205,6 +218,7 @@ class CostAgent(BaseAgent):
             "cost_matrix": cost_matrix,
             "expected_return": expected_return,
             "feasibility_analysis": feasibility_analysis,
+            "share_class_comparison": share_class_comparison,
         }
         
         await self.add_thinking(f"成本矩阵构建完成，共{len(cost_matrix)}个持有期方案")

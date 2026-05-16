@@ -30,13 +30,15 @@ class TechnicalPromptTemplate(PromptTemplate):
         )
     
     def get_system_prompt(self) -> str:
-        """获取系统提示词"""
         role_def = CommonTemplates.get_role_definition_template(
             role_name="基金技术分析师",
             expertise=[
                 "均线系统分析与趋势判断",
                 "MACD指标解读与买卖信号识别",
                 "RSI超买超卖区间分析",
+                "布林带分析与波动率评估",
+                "KDJ指标分析与超买超卖判断",
+                "支撑位/阻力位识别",
                 "估值分位数与安全边际评估",
                 "短期走势预测与目标区间计算"
             ]
@@ -54,6 +56,18 @@ class TechnicalPromptTemplate(PromptTemplate):
             {
                 "name": "RSI指标分析",
                 "description": "计算14日RSI，判断超买（>70）/超卖（<30）区间，评估短期动能"
+            },
+            {
+                "name": "布林带分析",
+                "description": "计算布林带上中下轨，判断价格突破信号和波动率变化"
+            },
+            {
+                "name": "KDJ指标分析",
+                "description": "计算KDJ指标，判断超买超卖和金叉死叉信号"
+            },
+            {
+                "name": "支撑阻力位分析",
+                "description": "识别关键支撑位和阻力位，判断当前位置与关键价位的关系"
             },
             {
                 "name": "估值分位数评估",
@@ -158,6 +172,15 @@ class TechnicalPromptTemplate(PromptTemplate):
 - 估值状态：{indicators.get('valuation_status', '未知')}
 - 历史最低净值：{nav_data.get('min_nav', '未知')}
 - 历史最高净值：{nav_data.get('max_nav', '未知')}
+
+## 布林带数据
+{self._format_bollinger(indicators.get('bollinger'))}
+
+## KDJ指标数据
+{self._format_kdj(indicators.get('kdj'))}
+
+## 支撑阻力位数据
+{self._format_support_resistance(indicators.get('support_resistance'))}
 
 ## 近期净值走势
 {self._format_nav_history(nav_data.get('recent_nav', []))}
@@ -278,10 +301,9 @@ class TechnicalPromptTemplate(PromptTemplate):
         return CommonTemplates.get_output_format_instruction(schema)
     
     def _format_nav_history(self, nav_list: list) -> str:
-        """格式化近期净值走势"""
         if not nav_list:
             return "暂无净值历史数据"
-        
+
         lines = ["日期 | 净值 | 涨跌幅"]
         lines.append("-" * 40)
         for item in nav_list[-10:]:
@@ -289,8 +311,41 @@ class TechnicalPromptTemplate(PromptTemplate):
             nav = item.get('nav', '未知')
             change = item.get('change_pct', '未知')
             lines.append(f"{date} | {nav} | {change}%")
-        
+
         return "\n".join(lines)
+
+    def _format_bollinger(self, bollinger: dict) -> str:
+        if not bollinger:
+            return "布林带数据不可用"
+        return (
+            f"- 上轨: {bollinger.get('upper', '未知')}\n"
+            f"- 中轨: {bollinger.get('middle', '未知')}\n"
+            f"- 下轨: {bollinger.get('lower', '未知')}\n"
+            f"- 带宽: {bollinger.get('bandwidth', '未知')}\n"
+            f"- %B指标: {bollinger.get('percent_b', '未知')}\n"
+            f"- 信号: {bollinger.get('signal', '未知')}"
+        )
+
+    def _format_kdj(self, kdj: dict) -> str:
+        if not kdj:
+            return "KDJ数据不可用"
+        return (
+            f"- K值: {kdj.get('k', '未知')}\n"
+            f"- D值: {kdj.get('d', '未知')}\n"
+            f"- J值: {kdj.get('j', '未知')}\n"
+            f"- 信号: {kdj.get('signal', '未知')}"
+        )
+
+    def _format_support_resistance(self, sr: dict) -> str:
+        if not sr:
+            return "支撑阻力位数据不可用"
+        return (
+            f"- 支撑位: {sr.get('support_levels', '未知')}\n"
+            f"- 阻力位: {sr.get('resistance_levels', '未知')}\n"
+            f"- 最近支撑: {sr.get('nearest_support', '未知')}\n"
+            f"- 最近阻力: {sr.get('nearest_resistance', '未知')}\n"
+            f"- 当前位置: {sr.get('current_position', '未知')}"
+        )
 
 
 TECHNICAL_SYSTEM_PROMPT = TechnicalPromptTemplate().get_system_prompt()
