@@ -296,21 +296,21 @@
           <div class="footer-links">
             <div class="footer-column">
               <h4>关于我们</h4>
-              <a href="#">公司介绍</a>
-              <a href="#">团队成员</a>
-              <a href="#">联系我们</a>
+              <span class="footer-link-disabled">公司介绍</span>
+              <span class="footer-link-disabled">团队成员</span>
+              <span class="footer-link-disabled">联系我们</span>
             </div>
             <div class="footer-column">
               <h4>产品服务</h4>
-              <a href="#">功能介绍</a>
-              <a href="#">使用指南</a>
-              <a href="#">API文档</a>
+              <NuxtLink to="/workspace" class="footer-link">功能介绍</NuxtLink>
+              <span class="footer-link-disabled">使用指南</span>
+              <span class="footer-link-disabled">API文档</span>
             </div>
             <div class="footer-column">
               <h4>法律条款</h4>
-              <a href="#">使用条款</a>
-              <a href="#">隐私政策</a>
-              <a href="#">免责声明</a>
+              <span class="footer-link-disabled">使用条款</span>
+              <span class="footer-link-disabled">隐私政策</span>
+              <span class="footer-link-disabled">免责声明</span>
             </div>
           </div>
         </div>

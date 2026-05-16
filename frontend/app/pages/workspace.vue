@@ -21,14 +21,25 @@
         :context-menu-visible="contextMenuVisible"
         :context-menu-x="contextMenuX"
         :context-menu-y="contextMenuY"
+        :collapsed="leftSidebarCollapsed"
         @update:search="sidebarSearch = $event"
         @select-session="selectChat"
         @right-click="handleRightClick"
         @delete-session="confirmDeleteSession"
+        @toggle-collapse="leftSidebarCollapsed = !leftSidebarCollapsed"
       />
 
       <!-- 中间主内容区 -->
-      <main class="main-content">
+      <main class="main-content" :style="mainContentStyle">
+        <!-- 多标签页栏 -->
+        <WorkspaceTabBar
+          v-if="openTabs.length > 0"
+          :tabs="openTabs"
+          :active-tab-id="activeTabId"
+          @select="switchTab"
+          @close="closeTab"
+        />
+
         <!-- 加载状态 - 仅在报告视图时显示 -->
         <div v-if="analysisStore.loading && !analysisStore.hasReport && currentView === 'report'" class="loading-container">
           <div class="loading-spinner"></div>
@@ -95,10 +106,12 @@
         :is-analyzing="isAnalyzing"
         :can-reanalyze="canReanalyze"
         :is-paused="analysisStore.isPaused"
+        :collapsed="rightSidebarCollapsed"
         @reanalyze="startReanalysis"
         @toggle-pause="togglePauseAnalysis"
         @show-report="showReportView"
         @show-agent-detail="showAgentDetail"
+        @toggle-collapse="rightSidebarCollapsed = !rightSidebarCollapsed"
       />
     </div>
   </div>
@@ -138,6 +151,82 @@ const currentView = ref<'report' | 'agent'>('report')
 const hasAutoSelectedAgent = ref(false)
 const headerFundInput = ref('')
 const sidebarSearch = ref('')
+const leftSidebarCollapsed = ref(false)
+const rightSidebarCollapsed = ref(false)
+
+/* ========== 侧边栏折叠计算 ========== */
+const mainContentStyle = computed(() => {
+  const leftW = leftSidebarCollapsed.value
+    ? 'var(--sidebar-width-left-collapsed)'
+    : 'var(--sidebar-width-left)'
+  const rightW = rightSidebarCollapsed.value
+    ? 'var(--sidebar-width-right-collapsed)'
+    : 'var(--sidebar-width-right)'
+  return {
+    marginLeft: leftW,
+    marginRight: rightW,
+  }
+})
+
+/* ========== 多标签页管理 ========== */
+interface TabInfo {
+  id: string
+  fundCode: string
+  fundName: string
+  direction?: 'buy' | 'sell' | 'hold'
+}
+
+const openTabs = ref<TabInfo[]>([])
+const activeTabId = ref<string>('')
+
+function addTab(sessionId: string, fundCode: string, fundName: string, direction?: 'buy' | 'sell' | 'hold') {
+  const existing = openTabs.value.find(t => t.id === sessionId)
+  if (existing) {
+    if (direction) existing.direction = direction
+    activeTabId.value = sessionId
+    return
+  }
+  openTabs.value.push({ id: sessionId, fundCode, fundName, direction })
+  activeTabId.value = sessionId
+}
+
+function switchTab(tabId: string) {
+  activeTabId.value = tabId
+  selectChat(tabId)
+}
+
+function closeTab(tabId: string) {
+  const idx = openTabs.value.findIndex(t => t.id === tabId)
+  if (idx === -1) return
+  openTabs.value.splice(idx, 1)
+  if (activeTabId.value === tabId) {
+    if (openTabs.value.length > 0) {
+      const newActive = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
+      if (newActive) {
+        activeTabId.value = newActive.id
+        selectChat(newActive.id)
+      }
+    } else {
+      activeTabId.value = ''
+    }
+  }
+}
+
+watch(() => sessionStore.currentSession, (session) => {
+  if (session) {
+    const direction = analysisStore.currentReport?.decision?.shortTerm?.direction as 'buy' | 'sell' | 'hold' | undefined
+    addTab(session.id, session.fundCode, session.fundName, direction)
+  }
+})
+
+watch(() => analysisStore.currentReport, (report) => {
+  if (report && sessionStore.currentSession) {
+    const tab = openTabs.value.find(t => t.id === sessionStore.currentSession!.id)
+    if (tab) {
+      tab.direction = report.decision?.shortTerm?.direction as 'buy' | 'sell' | 'hold' | undefined
+    }
+  }
+})
 
 /* ========== 组合式函数初始化 ========== */
 
@@ -216,7 +305,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 加载/分析中/错误/空状态容器 */
 .loading-container,
 .analyzing-container,
 .error-container,
@@ -226,15 +314,15 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   flex: 1;
-  padding: 40px;
+  padding: var(--space-10);
   text-align: center;
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #e0e0e0;
-  border-top-color: #409EFF;
+  border: 3px solid var(--border-base);
+  border-top-color: var(--color-primary-500);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -245,23 +333,22 @@ onUnmounted(() => {
   }
 }
 
-/* 分析中状态样式 */
 .analyzing-header {
-  margin-bottom: 30px;
+  margin-bottom: var(--space-8);
 }
 
 .progress-bar {
   width: 300px;
   height: 8px;
-  background: #e0e0e0;
-  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
   overflow: hidden;
-  margin: 15px 0;
+  margin: var(--space-4) 0;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #409EFF, #67C23A);
+  background: linear-gradient(90deg, var(--color-primary-500), var(--color-success-500));
   transition: width 0.3s ease;
 }
 
@@ -274,14 +361,14 @@ onUnmounted(() => {
 .thinking-steps {
   max-height: 300px;
   overflow-y: auto;
-  padding: 15px;
-  background: #f5f7fa;
-  border-radius: 8px;
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
 }
 
 .thinking-step {
-  padding: 8px 0;
-  border-bottom: 1px dashed #e0e0e0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px dashed var(--border-base);
 }
 
 .thinking-step:last-child {
@@ -289,49 +376,48 @@ onUnmounted(() => {
 }
 
 .step-time {
-  color: #909399;
-  margin-right: 10px;
-  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: var(--space-3);
+  font-size: var(--text-sm);
 }
 
-/* 错误状态样式 */
 .error-icon {
   width: 60px;
   height: 60px;
-  background: #fef0f0;
-  border: 2px solid #f56c6c;
+  background: var(--color-danger-50);
+  border: 2px solid var(--color-danger-500);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  color: #f56c6c;
-  margin-bottom: 15px;
+  font-size: var(--text-4xl);
+  color: var(--color-danger-500);
+  margin-bottom: var(--space-4);
 }
 
 .btn-retry {
-  margin-top: 15px;
-  padding: 8px 20px;
-  background: #409EFF;
+  margin-top: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+  background: var(--color-primary-500);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background var(--transition-fast);
 }
 
 .btn-retry:hover {
-  background: #66b1ff;
+  background: var(--color-primary-600);
 }
 
-/* 暂停提示 */
 .pause-notice {
-  margin: 8px 0;
-  padding: 6px 16px;
-  background: #fdf6ec;
-  border: 1px solid #E6A23C;
-  border-radius: 4px;
-  color: #E6A23C;
-  font-size: 14px;
-  font-weight: 500;
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-warning-50);
+  border: 1px solid var(--color-warning-500);
+  border-radius: var(--radius-sm);
+  color: var(--color-warning-700);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
 }
 </style>

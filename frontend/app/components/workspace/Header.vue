@@ -6,20 +6,33 @@
       </NuxtLink>
     </div>
     <div class="header-center">
-      <div class="header-search">
+      <div class="header-search" ref="searchBarRef">
         <input
           :value="fundInput"
           type="text"
           placeholder="输入基金代码或名称"
           :disabled="isAnalyzing"
-          @input="$emit('update:fundInput', ($event.target as HTMLInputElement).value)"
+          @input="onInput($event)"
+          @focus="onFocus"
         >
         <button class="btn-search" :disabled="isAnalyzing" @click="$emit('startAnalysis')">
           {{ isAnalyzing ? '分析中...' : '分析' }}
         </button>
+        <div v-if="showSuggestions && suggestionItems.length > 0" class="search-suggestions">
+          <div
+            v-for="item in suggestionItems"
+            :key="item.fundCode"
+            class="suggestion-item"
+            @mousedown.prevent="selectFund(item.fundCode, item.fundName)"
+          >
+            <span class="suggestion-code">{{ item.fundCode }}</span>
+            <span class="suggestion-name">{{ item.fundName }}</span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="header-right">
+      <ThemeToggle />
       <button
         class="btn-settings"
         :disabled="isAnalyzing"
@@ -46,23 +59,65 @@
 </template>
 
 <script setup lang="ts">
-/* 工作台顶部导航栏组件 */
+import { useFundService, type FundSearchItem } from '~/composables/useFundService'
 
 defineProps<{
-  /* 基金输入框值 */
   fundInput: string
-  /* 是否正在分析 */
   isAnalyzing: boolean
 }>()
 
-defineEmits<{
-  /* 基金输入框值更新 */
+const emit = defineEmits<{
   'update:fundInput': [value: string]
-  /* 开始分析 */
   'startAnalysis': []
-  /* 打开设置弹窗 */
   'openSettings': []
 }>()
+
+const fundService = useFundService()
+const showSuggestions = ref(false)
+const suggestionItems = ref<FundSearchItem[]>([])
+const searchBarRef = ref<HTMLElement | null>(null)
+
+function onInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  emit('update:fundInput', value)
+  const keyword = value.trim()
+  if (keyword.length > 0) {
+    fundService.debouncedSearchFunds(keyword, (results) => {
+      suggestionItems.value = results
+      showSuggestions.value = results.length > 0
+    })
+  } else {
+    showSuggestions.value = false
+    suggestionItems.value = []
+  }
+}
+
+function onFocus() {
+  if (suggestionItems.value.length > 0) {
+    showSuggestions.value = true
+  }
+}
+
+function selectFund(code: string, name: string) {
+  emit('update:fundInput', code + ' - ' + name)
+  showSuggestions.value = false
+  suggestionItems.value = []
+}
+
+function handleClickOutside(event: MouseEvent) {
+  if (searchBarRef.value && !searchBarRef.value.contains(event.target as Node)) {
+    showSuggestions.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+  fundService.cleanup()
+})
 </script>
 
 <style scoped>
@@ -72,6 +127,7 @@ defineEmits<{
   justify-content: flex-end;
   flex-shrink: 0;
   min-width: 60px;
+  gap: var(--space-1);
 }
 
 .btn-settings {
@@ -83,14 +139,14 @@ defineEmits<{
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #909399;
+  color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .btn-settings:hover:not(:disabled) {
-  background: rgba(64, 158, 255, 0.1);
-  color: #409EFF;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary-500);
 }
 
 .btn-settings:disabled {
@@ -105,5 +161,48 @@ defineEmits<{
 
 .btn-settings:hover:not(:disabled) .settings-icon {
   transform: rotate(60deg);
+}
+
+.search-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 60px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  max-height: 240px;
+  overflow-y: auto;
+  transition: background-color var(--transition-base), border-color var(--transition-base);
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.suggestion-item:hover {
+  background: var(--bg-hover);
+}
+
+.suggestion-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.suggestion-name {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
