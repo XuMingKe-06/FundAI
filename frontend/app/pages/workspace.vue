@@ -4,6 +4,8 @@
     <WorkspaceHeader
       :fund-input="headerFundInput"
       :is-analyzing="isAnalyzing"
+      :current-fund-code="currentFundCode"
+      :current-fund-name="currentFundName"
       @update:fund-input="headerFundInput = $event"
       @start-analysis="startNewAnalysis"
       @open-settings="showSettings = true"

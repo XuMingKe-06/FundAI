@@ -1,15 +1,17 @@
 <template>
   <aside class="sidebar-right" :class="{ collapsed: collapsed }">
     <template v-if="!collapsed">
+      <!-- 右侧边栏头部 -->
       <div class="sidebar-header">
         <h3>智能体进度</h3>
         <div class="sidebar-actions">
-          <button v-if="canReanalyze" class="btn-reanalyze" @click="$emit('reanalyze')">重新分析</button>
-          <button v-if="isAnalyzing && !isPaused" class="btn-pause" @click="$emit('togglePause')">暂停分析</button>
-          <button v-if="isAnalyzing && isPaused" class="btn-resume" @click="$emit('togglePause')">继续分析</button>
-          <button class="btn-report" @click="$emit('showReport')">报告</button>
+          <button v-if="canReanalyze" class="btn-action btn-reanalyze" @click="$emit('reanalyze')">重新分析</button>
+          <button v-if="isAnalyzing && !isPaused" class="btn-action btn-pause" @click="$emit('togglePause')">暂停</button>
+          <button v-if="isAnalyzing && isPaused" class="btn-action btn-resume" @click="$emit('togglePause')">继续</button>
+          <button class="btn-action btn-report" @click="$emit('showReport')">报告</button>
         </div>
       </div>
+      <!-- 智能体进度列表 -->
       <div class="agent-list">
         <div
           v-for="agent in agentList"
@@ -18,12 +20,18 @@
           :class="[agent.status, { decision: agent.type === 'decision' }]"
           @click="$emit('showAgentDetail', agent.type)"
         >
-          <div class="agent-header">
-            <span class="agent-name">{{ agent.name }}</span>
-            <span class="agent-score">{{ formatAgentScore(agent) }}</span>
-            <span class="agent-status">{{ getAgentStatusText(agent.status) }}</span>
+          <!-- 状态圆点 -->
+          <span class="agent-progress-dot" :class="agent.status"></span>
+          <!-- 智能体信息 -->
+          <div class="agent-progress-info">
+            <div class="agent-progress-name">{{ agent.name }}</div>
+            <div class="agent-progress-status">
+              {{ getAgentStatusText(agent.status) }}
+              <span v-if="agent.status === 'completed' && agent.score"> | {{ formatScoreValue(agent.score) }}</span>
+            </div>
           </div>
-          <div class="agent-summary md-content md-summary" v-html="renderMarkdown(agent.summary || '等待分析...')"></div>
+          <!-- 评分徽章 -->
+          <span v-if="agent.score && agent.status === 'completed'" class="agent-progress-score">{{ getScoreNumber(agent.score) }}</span>
         </div>
       </div>
     </template>
@@ -52,7 +60,6 @@
 
 <script setup lang="ts">
 import { getAgentStatusText, formatAgentScore } from '~/utils/format'
-import { renderMarkdown } from '~/utils/markdown'
 import type { AgentInfo, AgentType } from '~/stores/agent'
 
 defineProps<{
@@ -70,50 +77,91 @@ defineEmits<{
   'showAgentDetail': [agentType: AgentType]
   'toggleCollapse': []
 }>()
+
+/* 格式化评分为数字显示 */
+function getScoreNumber(score: number | string): string {
+  if (typeof score === 'number') return score.toFixed(0)
+  const num = parseFloat(String(score))
+  return isNaN(num) ? String(score) : num.toFixed(0)
+}
+
+/* 格式化评分值（用于状态行） */
+function formatScoreValue(score: number | string): string {
+  if (typeof score === 'number') return `${score.toFixed(1)}分`
+  return String(score)
+}
 </script>
 
 <style scoped>
-@import '~/assets/css/markdown.css';
-
 .sidebar-actions {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-1);
   align-items: center;
   flex-wrap: wrap;
 }
 
-.btn-reanalyze,
-.btn-pause {
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-warning-500);
-  color: #fff;
+.btn-action {
+  padding: 2px var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
   cursor: pointer;
   white-space: nowrap;
   transition: opacity var(--transition-fast);
 }
 
-.btn-reanalyze:hover,
+.btn-reanalyze {
+  background: var(--color-warning-50);
+  color: var(--color-warning-600);
+}
+
+.btn-reanalyze:hover {
+  opacity: 0.85;
+}
+
+.btn-pause {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
 .btn-pause:hover {
   opacity: 0.85;
 }
 
 .btn-resume {
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-success-500);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity var(--transition-fast);
+  background: var(--color-success-50);
+  color: var(--color-success-600);
 }
 
 .btn-resume:hover {
   opacity: 0.85;
+}
+
+.btn-report {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
+.btn-report:hover {
+  opacity: 0.85;
+}
+
+/* 深色模式按钮适配 */
+[data-theme="dark"] .btn-reanalyze {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--color-warning-500);
+}
+
+[data-theme="dark"] .btn-pause,
+[data-theme="dark"] .btn-report {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--color-primary-500);
+}
+
+[data-theme="dark"] .btn-resume {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--color-success-500);
 }
 
 .collapsed-agent-list {
@@ -141,7 +189,7 @@ defineEmits<{
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--color-gray-400);
+  background: var(--color-gray-300);
 }
 
 .collapsed-agent-item.running .collapsed-agent-dot {

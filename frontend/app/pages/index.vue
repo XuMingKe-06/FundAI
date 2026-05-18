@@ -4,13 +4,6 @@
     <nav class="navbar">
       <div class="nav-container">
         <div class="nav-logo">
-          <svg class="logo-icon" width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <rect x="2" y="20" width="6" height="10" rx="1" fill="#3B82F6"/>
-            <rect x="10" y="14" width="6" height="16" rx="1" fill="#60A5FA"/>
-            <rect x="18" y="8" width="6" height="22" rx="1" fill="#3B82F6"/>
-            <rect x="26" y="2" width="4" height="28" rx="1" fill="#60A5FA"/>
-            <path d="M4 18 L12 12 L20 16 L28 6" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          </svg>
           <span class="logo-text">FundAI</span>
         </div>
         <div class="nav-right">
