@@ -46,31 +46,6 @@
           <p>正在加载分析报告...</p>
         </div>
 
-        <!-- 分析中状态 - 仅在报告视图时显示 -->
-        <div v-else-if="isAnalyzing && currentView === 'report'" class="analyzing-container">
-          <div class="analyzing-header">
-            <h2>正在分析: {{ headerFundInput }}</h2>
-            <div v-if="analysisStore.isPaused" class="pause-notice">分析已暂停</div>
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: `${agentStore.progress}%` }"></div>
-            </div>
-            <p>分析进度: {{ agentStore.progress }}%</p>
-          </div>
-          <div class="thinking-process">
-            <h3>实时思考过程</h3>
-            <div class="thinking-steps">
-              <div
-                v-for="(step, index) in recentThinkingSteps"
-                :key="index"
-                class="thinking-step"
-              >
-                <span class="step-time">{{ step.time }}</span>
-                <span class="step-text">{{ step.text }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- 错误状态 - 仅在报告视图时显示 -->
         <div v-else-if="analysisStore.error && currentView === 'report'" class="error-container">
           <div class="error-icon">!</div>
@@ -80,23 +55,30 @@
         </div>
 
         <!-- 空状态 - 仅在报告视图时显示 -->
-        <div v-else-if="!analysisStore.hasReport && currentView === 'report'" class="empty-container">
+        <div v-else-if="!analysisStore.hasReport && currentView === 'report' && !isAnalyzing" class="empty-container">
           <h3>开始分析基金</h3>
           <p>在顶部搜索框输入基金代码或名称，点击分析按钮开始</p>
         </div>
+
+        <!-- 工作流时间线视图（分析中或查看智能体详情时显示） -->
+        <WorkspaceAgentView
+          v-else-if="isAnalyzing || currentView === 'agent'"
+          :agents="agentList"
+          :fund-code="currentFundCode"
+          :fund-name="currentFundName"
+          :analysis-mode="analysisModeLabel"
+          :risk-preference="riskPreferenceLabel"
+          :is-analyzing="isAnalyzing"
+          :is-paused="analysisStore.isPaused"
+          :progress="agentStore.progress"
+          :elapsed-time="elapsedTime"
+          :focused-agent-type="agentStore.currentAgentType"
+        />
 
         <!-- 报告视图 -->
         <WorkspaceReportView
           v-else-if="currentView === 'report'"
           :report="currentReport"
-        />
-
-        <!-- 智能体思考过程视图 -->
-        <WorkspaceAgentView
-          v-if="currentView === 'agent' && currentAgentData"
-          :agent-data="currentAgentData"
-          :show-thinking-indicator="showThinkingIndicator"
-          :is-paused="analysisStore.isPaused"
         />
       </main>
 
@@ -250,10 +232,46 @@ sse.setupSSEHandlers(analysis.loadAnalysisReport)
 const currentReport = analysis.currentReport
 const isAnalyzing = analysis.isAnalyzing
 const canReanalyze = analysis.canReanalyze
-const currentAgentData = computed(() => agentStore.currentAgent)
 const agentList = computed(() => agentStore.agentList)
-const showThinkingIndicator = computed(() => isAnalyzing.value && currentAgentData.value?.status === 'running')
-const recentThinkingSteps = computed(() => agentStore.thinkingProcess.slice(-10))
+
+/* 当前基金信息（从当前会话获取） */
+const currentFundCode = computed(() => sessionStore.currentSession?.fundCode || headerFundInput.value)
+const currentFundName = computed(() => sessionStore.currentSession?.fundName || '')
+
+/* 分析模式标签 */
+const analysisModeLabel = computed(() => {
+  const modeMap: Record<string, string> = {
+    parallel: '并行分析',
+    sequential: '串行分析',
+  }
+  return modeMap[analysisMode.value as string] || '并行分析'
+})
+
+/* 风险偏好标签 */
+const riskPreferenceLabel = computed(() => {
+  const prefMap: Record<string, string> = {
+    conservative: '保守型',
+    neutral: '稳健型',
+    aggressive: '进取型',
+  }
+  return prefMap['neutral'] || '稳健型'
+})
+
+/* 已用时间计算 */
+const elapsedTime = computed(() => {
+  const agents = agentStore.agentList
+  const runningAgent = agents.find(a => a.status === 'running')
+  if (!runningAgent?.startTime) return ''
+  const start = Number(runningAgent.startTime)
+  const end = runningAgent.endTime ? Number(runningAgent.endTime) : Date.now()
+  if (isNaN(start)) return ''
+  const diff = Math.max(0, end - start)
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  return `${minutes}m ${remainSeconds}s`
+})
 
 /* ========== 方法 ========== */
 const {
@@ -292,7 +310,6 @@ onUnmounted(() => {
 
 <style scoped>
 .loading-container,
-.analyzing-container,
 .error-container,
 .empty-container {
   display: flex;
@@ -317,54 +334,6 @@ onUnmounted(() => {
   to {
     transform: rotate(360deg);
   }
-}
-
-.analyzing-header {
-  margin-bottom: var(--space-8);
-}
-
-.progress-bar {
-  width: 300px;
-  height: 8px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  margin: var(--space-4) 0;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--color-primary-500), var(--color-success-500));
-  transition: width 0.3s ease;
-}
-
-.thinking-process {
-  width: 100%;
-  max-width: 600px;
-  text-align: left;
-}
-
-.thinking-steps {
-  max-height: 300px;
-  overflow-y: auto;
-  padding: var(--space-4);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-}
-
-.thinking-step {
-  padding: var(--space-2) 0;
-  border-bottom: 1px dashed var(--border-base);
-}
-
-.thinking-step:last-child {
-  border-bottom: none;
-}
-
-.step-time {
-  color: var(--text-muted);
-  margin-right: var(--space-3);
-  font-size: var(--text-sm);
 }
 
 .error-icon {
@@ -394,16 +363,5 @@ onUnmounted(() => {
 
 .btn-retry:hover {
   background: var(--color-primary-600);
-}
-
-.pause-notice {
-  margin: var(--space-2) 0;
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-warning-50);
-  border: 1px solid var(--color-warning-500);
-  border-radius: var(--radius-sm);
-  color: var(--color-warning-700);
-  font-size: var(--text-base);
-  font-weight: var(--font-medium);
 }
 </style>
