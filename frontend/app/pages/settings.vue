@@ -16,6 +16,47 @@
 
     <!-- 主内容区域 -->
     <main class="settings-main">
+      <!-- 智能体执行模式配置区域 -->
+      <el-card class="settings-card" shadow="hover">
+        <template #header>
+          <div class="card-header">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            </svg>
+            <span>智能体执行模式</span>
+          </div>
+        </template>
+
+        <el-form label-position="top" class="settings-form">
+          <el-form-item label="执行模式">
+            <el-radio-group v-model="analysisMode" @change="handleModeChange">
+              <el-radio value="parallel" class="settings-radio">
+                <div class="settings-radio-content">
+                  <span class="settings-radio-title">并行模式</span>
+                  <span class="settings-radio-desc">所有分析智能体同时运行，分析速度更快，适合快速获取初步结论</span>
+                </div>
+              </el-radio>
+              <el-radio value="sequential" class="settings-radio">
+                <div class="settings-radio-content">
+                  <span class="settings-radio-title">串行模式</span>
+                  <span class="settings-radio-desc">智能体按顺序逐个分析，每个智能体可参考前序分析结果，结论更深入</span>
+                </div>
+              </el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-form>
+        <div class="settings-mode-note">
+          <p v-if="analysisMode === 'parallel'">
+            当前所有5个分析智能体同时运行，决策智能体等所有分析完成后汇总结果。
+            适合快速获取初步投资参考。
+          </p>
+          <p v-else>
+            智能体按 <strong>基本面 → 技术面 → 风险 → 成本 → 情绪</strong> 顺序依次分析，
+            每个智能体可参考前序分析结果，推理更连贯但耗时较长。
+          </p>
+        </div>
+      </el-card>
+
       <!-- LLM 对话模型配置区域 -->
       <el-card class="settings-card" shadow="hover">
         <template #header>
@@ -304,17 +345,24 @@
 </template>
 
 <script setup lang="ts">
-/* 设置页面 - 配置 LLM、数据源、RAG 参数 */
+/* 设置页面 - 配置智能体执行模式、LLM、数据源、RAG 参数 */
 
 import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '~/stores/settings'
+import { useAnalysisSettings, type AnalysisMode } from '~/composables/useAnalysisSettings'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const { analysisMode, saveMode } = useAnalysisSettings()
 
 /* 返回工作台 */
 function goBack() {
   router.push('/workspace')
+}
+
+/* 处理分析模式切换 */
+function handleModeChange(mode: string | number | boolean | undefined) {
+  saveMode(mode as AnalysisMode)
 }
 
 /* 保存 LLM 配置 */
@@ -562,6 +610,76 @@ onMounted(() => {
 /* 关于区域 */
 .about-section {
   margin-top: 16px;
+}
+
+/* 智能体执行模式 - 单选按钮样式 */
+.settings-form :deep(.el-radio-group) {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  align-items: stretch;
+}
+
+.settings-form :deep(.settings-radio) {
+  display: flex;
+  align-items: flex-start;
+  height: auto !important;
+  margin-right: 0 !important;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color, #E2E8F0);
+  border-radius: 8px;
+  white-space: normal;
+  width: 100%;
+  box-sizing: border-box;
+  transition: all 0.2s;
+}
+
+.settings-form :deep(.settings-radio.is-checked) {
+  border-color: var(--primary-color, #3B82F6);
+  background: #eff6ff;
+}
+
+.settings-form :deep(.settings-radio:hover) {
+  border-color: #93c5fd;
+}
+
+.settings-form :deep(.settings-radio .el-radio__label) {
+  width: 100%;
+}
+
+.settings-radio-content {
+  display: flex;
+  flex-direction: column;
+  margin-left: 8px;
+  width: 100%;
+}
+
+.settings-radio-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #0F172A);
+  margin-bottom: 4px;
+}
+
+.settings-radio-desc {
+  font-size: 13px;
+  color: var(--text-muted, #94A3B8);
+  line-height: 1.5;
+}
+
+.settings-mode-note {
+  margin-top: 4px;
+  padding: 12px 16px;
+  background: var(--bg-secondary, #F8FAFC);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #475569);
+  line-height: 1.6;
+}
+
+.settings-mode-note strong {
+  color: var(--primary-color, #3B82F6);
 }
 
 .about-section :deep(.el-divider__text) {

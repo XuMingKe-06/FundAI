@@ -8,7 +8,6 @@
       :current-fund-name="currentFundName"
       @update:fund-input="headerFundInput = $event"
       @start-analysis="startNewAnalysis"
-      @open-settings="showSettings = true"
     />
 
     <!-- 主内容区域 - 三栏布局 -->
@@ -99,13 +98,6 @@
       />
     </div>
   </div>
-
-  <!-- 设置弹窗 -->
-  <WorkspaceSettingsDialog
-    v-model:show-settings="showSettings"
-    :analysis-mode="analysisMode"
-    @mode-change="handleModeChange"
-  />
 </template>
 
 <script setup lang="ts">
@@ -119,7 +111,7 @@
 import { useWorkspaceSSE } from '~/composables/useWorkspaceSSE'
 import { useWorkspaceAnalysis } from '~/composables/useWorkspaceAnalysis'
 import { useWorkspaceContextMenu } from '~/composables/useWorkspaceContextMenu'
-import { useAnalysisSettings, type AnalysisMode } from '~/composables/useAnalysisSettings'
+import { useAnalysisSettings } from '~/composables/useAnalysisSettings'
 import { useAgentStore } from '~/stores/agent'
 import { useAnalysisStore } from '~/stores/analysis'
 import { useSessionStore } from '~/stores/session'
@@ -128,7 +120,7 @@ import { useSessionStore } from '~/stores/session'
 const agentStore = useAgentStore()
 const analysisStore = useAnalysisStore()
 const sessionStore = useSessionStore()
-const { analysisMode, showSettings, saveMode } = useAnalysisSettings()
+const { analysisMode } = useAnalysisSettings()
 
 /* ========== 共享状态（跨组合式函数共享） ========== */
 const currentView = ref<'report' | 'agent'>('report')
@@ -285,11 +277,6 @@ const {
   showReportView,
   retryLoad,
 } = analysis
-
-/* 处理分析模式切换 */
-function handleModeChange(mode: string) {
-  saveMode(mode as AnalysisMode)
-}
 
 /* ========== 生命周期 ========== */
 

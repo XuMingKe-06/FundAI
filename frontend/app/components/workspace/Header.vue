@@ -54,7 +54,7 @@
         class="topbar-btn"
         :disabled="isAnalyzing"
         title="分析设置"
-        @click="$emit('openSettings')"
+        @click="navigateToSettings"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -78,13 +78,18 @@ defineProps<{
 const emit = defineEmits<{
   'update:fundInput': [value: string]
   'startAnalysis': []
-  'openSettings': []
 }>()
 
+const router = useRouter()
 const fundService = useFundService()
 const showSuggestions = ref(false)
 const suggestionItems = ref<FundSearchItem[]>([])
 const searchBarRef = ref<HTMLElement | null>(null)
+
+/* 跳转到设置页面 */
+function navigateToSettings() {
+  router.push('/settings')
+}
 
 function onInput(event: Event) {
   const value = (event.target as HTMLInputElement).value
