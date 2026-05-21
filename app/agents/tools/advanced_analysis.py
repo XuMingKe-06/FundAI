@@ -1,14 +1,10 @@
 from typing import Dict, Any, List, Optional
-import logging
-
+from loguru import logger
 from app.agents.tools.base import BaseTool, ToolResult, ToolCategory, register_tool
 from app.core.calculations import (
     calculate_style_box, estimate_share_class_fees,
     calculate_dca_analysis, calculate_scenario_analysis
 )
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class CalculateStyleBoxTool(BaseTool):
@@ -61,7 +57,6 @@ class CalculateStyleBoxTool(BaseTool):
             logger.error(f"计算风格箱失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算风格箱异常: {str(e)}")
 
-
 @register_tool
 class CompareShareClassTool(BaseTool):
     def __init__(self):
@@ -111,7 +106,6 @@ class CompareShareClassTool(BaseTool):
         except Exception as e:
             logger.error(f"对比份额类别失败: {e}", exc_info=True)
             return ToolResult.fail(f"对比份额类别异常: {str(e)}")
-
 
 @register_tool
 class CalculateDCATool(BaseTool):
@@ -179,7 +173,6 @@ class CalculateDCATool(BaseTool):
         except Exception as e:
             logger.error(f"定投分析失败: {e}", exc_info=True)
             return ToolResult.fail(f"定投分析异常: {str(e)}")
-
 
 @register_tool
 class ScenarioAnalysisTool(BaseTool):

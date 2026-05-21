@@ -5,8 +5,7 @@
 """
 from typing import Dict, Any, Optional
 from datetime import date, timedelta
-import logging
-
+from loguru import logger
 from app.agents.tools.base import (
     BaseTool, 
     ToolResult, 
@@ -14,9 +13,6 @@ from app.agents.tools.base import (
     register_tool
 )
 from app.data_sources.manager import datasource_manager
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class GetFundInfoTool(BaseTool):
@@ -84,7 +80,6 @@ class GetFundInfoTool(BaseTool):
                 f"获取基金基础信息异常: {str(e)}",
                 metadata={"fund_code": fund_code}
             )
-
 
 @register_tool
 class GetNavHistoryTool(BaseTool):
@@ -194,7 +189,6 @@ class GetNavHistoryTool(BaseTool):
                 metadata={"fund_code": fund_code}
             )
 
-
 @register_tool
 class GetHoldingsTool(BaseTool):
     """
@@ -263,7 +257,6 @@ class GetHoldingsTool(BaseTool):
                 metadata={"fund_code": fund_code}
             )
 
-
 @register_tool
 class GetFundManagerTool(BaseTool):
     """
@@ -330,7 +323,6 @@ class GetFundManagerTool(BaseTool):
                 f"获取基金经理信息异常: {str(e)}",
                 metadata={"fund_code": fund_code}
             )
-
 
 @register_tool
 class GetFundFeesTool(BaseTool):

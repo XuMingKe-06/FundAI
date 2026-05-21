@@ -1,15 +1,11 @@
 from typing import Dict, Any, List, Optional
 import numpy as np
-import logging
-
+from loguru import logger
 from app.agents.tools.base import BaseTool, ToolResult, ToolCategory, register_tool
 from app.core.calculations import (
     calculate_bollinger_bands, calculate_kdj_from_nav,
     calculate_support_resistance
 )
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class CalculateBollingerTool(BaseTool):
@@ -77,7 +73,6 @@ class CalculateBollingerTool(BaseTool):
         except Exception as e:
             logger.error(f"计算布林带失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算布林带异常: {str(e)}")
-
 
 @register_tool
 class CalculateKDJTool(BaseTool):
@@ -148,7 +143,6 @@ class CalculateKDJTool(BaseTool):
         except Exception as e:
             logger.error(f"计算KDJ失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算KDJ异常: {str(e)}")
-
 
 @register_tool
 class CalculateSupportResistanceTool(BaseTool):

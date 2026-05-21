@@ -2,7 +2,7 @@
 配置管理API端点
 """
 import time
-import logging
+from loguru import logger
 from fastapi import APIRouter, HTTPException, status
 
 from app.schemas.common import ApiResponse
@@ -16,10 +16,7 @@ from app.schemas.settings import (
 )
 from app.core.settings_manager import get_settings_manager
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/settings", tags=["配置"])
-
 
 @router.get("", response_model=ApiResponse[AllSettings])
 async def get_all_settings():
@@ -35,7 +32,6 @@ async def get_all_settings():
             rag=RAGSettings(**config.get("rag", {})),
         ),
     )
-
 
 @router.put("", response_model=ApiResponse[AllSettings])
 async def update_all_settings(data: AllSettings):
@@ -58,7 +54,6 @@ async def update_all_settings(data: AllSettings):
         ),
     )
 
-
 @router.get("/llm", response_model=ApiResponse[LLMSettings])
 async def get_llm_settings():
     """获取LLM配置"""
@@ -69,7 +64,6 @@ async def get_llm_settings():
         message="success",
         data=LLMSettings(**config.get("llm", {})),
     )
-
 
 @router.put("/llm", response_model=ApiResponse[LLMSettings])
 async def update_llm_settings(data: LLMSettings):
@@ -88,7 +82,6 @@ async def update_llm_settings(data: LLMSettings):
         data=LLMSettings(**config.get("llm", {})),
     )
 
-
 @router.get("/datasource", response_model=ApiResponse[DatasourceSettings])
 async def get_datasource_settings():
     """获取数据源配置"""
@@ -99,7 +92,6 @@ async def get_datasource_settings():
         message="success",
         data=DatasourceSettings(**config.get("datasource", {})),
     )
-
 
 @router.put("/datasource", response_model=ApiResponse[DatasourceSettings])
 async def update_datasource_settings(data: DatasourceSettings):
@@ -113,7 +105,6 @@ async def update_datasource_settings(data: DatasourceSettings):
         data=DatasourceSettings(**config.get("datasource", {})),
     )
 
-
 @router.get("/rag", response_model=ApiResponse[RAGSettings])
 async def get_rag_settings():
     """获取RAG配置"""
@@ -124,7 +115,6 @@ async def get_rag_settings():
         message="success",
         data=RAGSettings(**config.get("rag", {})),
     )
-
 
 @router.put("/rag", response_model=ApiResponse[RAGSettings])
 async def update_rag_settings(data: RAGSettings):
@@ -142,7 +132,6 @@ async def update_rag_settings(data: RAGSettings):
         message="RAG配置更新成功",
         data=RAGSettings(**config.get("rag", {})),
     )
-
 
 @router.post("/llm/test", response_model=ApiResponse[LLMTestResponse])
 async def test_llm_connection(request: LLMTestRequest):

@@ -3,7 +3,7 @@
 处理智能体输出快照、决策报告和降级报告的持久化
 """
 import json
-import logging
+from loguru import logger
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +12,6 @@ from sqlalchemy import delete
 from app.core.database import AsyncSessionLocal
 from app.models.analysis import AgentOutput, DecisionReport
 from app.agents.orchestrator import AgentOrchestrator
-
-logger = logging.getLogger(__name__)
-
 
 async def save_agent_snapshot(session_id: str, agent) -> None:
     """使用独立 DB 会话保存单个智能体输出快照（支持页面刷新恢复）"""
@@ -48,7 +45,6 @@ async def save_agent_snapshot(session_id: str, agent) -> None:
             await db_session.commit()
     except Exception as e:
         logger.warning(f"保存智能体 {agent.agent_type} 快照失败: {e}")
-
 
 async def save_agent_outputs(
     db_session: AsyncSession,
@@ -116,7 +112,6 @@ async def save_agent_outputs(
         await db_session.rollback()
         raise
 
-
 def _build_fallback_short_term(orchestrator: AgentOrchestrator) -> dict:
     """从各分析智能体构建降级短线决策数据"""
     reasons = []
@@ -146,7 +141,6 @@ def _build_fallback_short_term(orchestrator: AgentOrchestrator) -> dict:
         "stop_loss": "建议设置5%-8%止损线"
     }
 
-
 def _build_fallback_long_term(orchestrator: AgentOrchestrator) -> dict:
     """从各分析智能体构建降级长线决策数据"""
     reasons = []
@@ -173,7 +167,6 @@ def _build_fallback_long_term(orchestrator: AgentOrchestrator) -> dict:
         "reasons": reasons[:5],
         "dip_investment_suggestion": "建议等待决策分析完成后再做定投决策"
     }
-
 
 async def save_decision_report(
     db_session: AsyncSession,
@@ -366,7 +359,6 @@ async def save_decision_report(
         logger.error(f"保存决策报告失败: {e}")
         await db_session.rollback()
         raise
-
 
 async def save_fallback_report(
     db_session: AsyncSession,

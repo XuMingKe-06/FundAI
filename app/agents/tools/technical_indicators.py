@@ -4,8 +4,7 @@
 提供移动平均线、MACD、RSI、估值分位数等技术指标计算功能
 """
 from typing import Dict, Any, List, Optional
-import logging
-
+from loguru import logger
 from app.agents.tools.base import (
     BaseTool, 
     ToolResult, 
@@ -14,9 +13,6 @@ from app.agents.tools.base import (
 )
 from app.core.calculations import calculate_ma, calculate_ma_slope, calculate_macd, calculate_rsi, calculate_percentile
 from app.core.calculations.ema import calculate_ema
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class CalculateMATool(BaseTool):
@@ -123,7 +119,6 @@ class CalculateMATool(BaseTool):
         except Exception as e:
             logger.error(f"计算移动平均线失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算移动平均线异常: {str(e)}")
-
 
 @register_tool
 class CalculateMACDTool(BaseTool):
@@ -268,7 +263,6 @@ class CalculateMACDTool(BaseTool):
             logger.error(f"计算MACD指标失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算MACD指标异常: {str(e)}")
 
-
 @register_tool
 class CalculateRSITool(BaseTool):
     """
@@ -367,7 +361,6 @@ class CalculateRSITool(BaseTool):
         except Exception as e:
             logger.error(f"计算RSI指标失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算RSI指标异常: {str(e)}")
-
 
 @register_tool
 class CalculatePercentileTool(BaseTool):

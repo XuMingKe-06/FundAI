@@ -2,7 +2,7 @@
 会话管理API端点（无需认证）
 """
 import json
-import logging
+from loguru import logger
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -16,10 +16,7 @@ from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
 from app.schemas.common import ApiResponse, PaginatedData
 from app.schemas.analysis import SessionListItem, SessionDetail, AgentOutputInfo
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/sessions", tags=["会话"])
-
 
 @router.get("", response_model=ApiResponse[PaginatedData[SessionListItem]])
 async def get_sessions(
@@ -94,7 +91,6 @@ async def get_sessions(
         )
     )
 
-
 def _direction_to_chinese(direction: Optional[str]) -> Optional[str]:
     """将投资方向英文标识转换为中文"""
     if not direction:
@@ -105,7 +101,6 @@ def _direction_to_chinese(direction: Optional[str]) -> Optional[str]:
         "hold": "持有"
     }
     return direction_map.get(direction, direction)
-
 
 @router.delete("/{session_id}", response_model=ApiResponse[None])
 async def delete_session(
@@ -137,7 +132,6 @@ async def delete_session(
 
     logger.info(f"会话 {session_id} 已被删除")
     return ApiResponse(code=200, message="会话已删除", data=None)
-
 
 @router.get("/{session_id}", response_model=ApiResponse[SessionDetail])
 async def get_session_detail(

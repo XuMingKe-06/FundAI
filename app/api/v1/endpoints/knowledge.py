@@ -2,7 +2,7 @@
 知识库管理API端点
 提供文档上传、文本导入、知识搜索、文档删除和集合列表等功能
 """
-import logging
+from loguru import logger
 import os
 import tempfile
 from typing import Optional
@@ -20,10 +20,7 @@ from app.schemas.common import ApiResponse
 from app.services.knowledge_service import get_knowledge_service
 from app.services.vector_store_service import get_vector_store_service
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
-
 
 @router.post("/documents", response_model=ApiResponse[KnowledgeDocument])
 async def upload_document(
@@ -122,7 +119,6 @@ async def upload_document(
             detail=f"上传文档失败: {str(e)}"
         )
 
-
 @router.post("/documents/text", response_model=ApiResponse[KnowledgeDocument])
 async def import_text(
     request: KnowledgeDocumentCreate,
@@ -193,7 +189,6 @@ async def import_text(
             detail=f"导入文本失败: {str(e)}"
         )
 
-
 @router.get("/search", response_model=ApiResponse[KnowledgeSearchResponse])
 async def search_knowledge(
     query: str = Query(..., description="搜索查询关键词", min_length=1),
@@ -258,7 +253,6 @@ async def search_knowledge(
             detail=f"搜索失败: {str(e)}"
         )
 
-
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: str,
@@ -299,7 +293,6 @@ async def delete_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"删除文档失败: {str(e)}"
         )
-
 
 @router.get("/collections")
 async def list_collections():

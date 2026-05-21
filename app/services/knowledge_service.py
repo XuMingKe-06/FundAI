@@ -3,7 +3,7 @@
 提供文档导入、解析、分块和检索功能
 支持 TXT、Markdown、PDF 等多种文档格式
 """
-import logging
+from loguru import logger
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,9 +15,6 @@ from app.core.config import settings
 from app.core.settings_manager import get_settings_manager
 from app.schemas.knowledge import KnowledgeDocumentType
 from app.services.vector_store_service import get_vector_store_service
-
-logger = logging.getLogger(__name__)
-
 
 class KnowledgeService:
     """
@@ -411,7 +408,6 @@ class KnowledgeService:
         except Exception as e:
             logger.error(f"获取文档详情失败: {e}")
             return None
-
 
 def get_knowledge_service() -> KnowledgeService:
     """

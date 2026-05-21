@@ -1,8 +1,6 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, date
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 DAILY_RETURN_THRESHOLD = 0.20
 
@@ -45,7 +43,6 @@ class DataQualityReport:
             "warnings": self.warnings
         }
 
-
 def validate_nav_history(nav_history: List[Dict[str, Any]]) -> DataQualityReport:
     report = DataQualityReport()
     if not nav_history:
@@ -75,7 +72,6 @@ def validate_nav_history(nav_history: List[Dict[str, Any]]) -> DataQualityReport
 
     return report
 
-
 def validate_fund_info(fund_info: Dict[str, Any]) -> DataQualityReport:
     report = DataQualityReport()
     if not fund_info:
@@ -88,7 +84,6 @@ def validate_fund_info(fund_info: Dict[str, Any]) -> DataQualityReport:
             report.add_issue(field, "missing", f"缺少必要字段: {field}")
 
     return report
-
 
 def validate_holdings(holdings: Dict[str, Any]) -> DataQualityReport:
     report = DataQualityReport()
@@ -133,7 +128,6 @@ def validate_holdings(holdings: Dict[str, Any]) -> DataQualityReport:
 
     return report
 
-
 def validate_fees(fees_data: Dict[str, Any]) -> DataQualityReport:
     report = DataQualityReport()
     if not fees_data:
@@ -153,7 +147,6 @@ def validate_fees(fees_data: Dict[str, Any]) -> DataQualityReport:
             report.add_warning("management_fee", "out_of_range", f"管理费率异常: {mf}", mf)
 
     return report
-
 
 def check_data_timeliness(data_date: Optional[str], max_lag_days: int = 90) -> Optional[Dict[str, Any]]:
     if not data_date:

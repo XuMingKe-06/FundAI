@@ -4,7 +4,7 @@ SSE 流式推送服务
 """
 import json
 import asyncio
-import logging
+from loguru import logger
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Callable
@@ -12,8 +12,6 @@ from typing import Optional, Callable
 from fastapi import Request
 
 from app.agents.orchestrator import AgentOrchestrator
-
-logger = logging.getLogger(__name__)
 
 # 正在分析中的会话集合（用于防止同一会话的并发编排器）
 _active_analysis_sessions: set = set()
@@ -50,6 +48,8 @@ async def run_analysis_with_streaming(
     - 事件同时写入缓冲区，支持页面刷新重连时回放运行中智能体的历史事件
     """
     event_queue: asyncio.Queue = asyncio.Queue()
+    # 记录分析流启动信息
+    logger.info("启动分析流式推送 | fund_code={} | mode={} | session_id={}", context.get("fund_code", "unknown"), analysis_mode, session_id)
 
     # 注册全局事件队列和缓冲区，支持页面刷新重连时复用
     if session_id:
@@ -127,7 +127,7 @@ async def run_analysis_with_streaming(
                 try:
                     await save_func(agent)
                 except Exception as save_err:
-                    logger.warning(f"保存智能体 {agent_type} 输出失败: {save_err}")
+                    logger.warning("保存智能体 {} 输出失败 | error={}", agent_type, save_err)
 
             # 推送 completed 状态
             completed_data = {
@@ -147,9 +147,11 @@ async def run_analysis_with_streaming(
                 "result": result,
                 "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             })
+            # 记录智能体执行成功
+            logger.debug("智能体 {} 执行成功 | score={} | duration_ms={}", agent_type, getattr(agent, 'score', None), getattr(agent, 'duration_ms', None))
 
         except Exception as e:
-            logger.error(f"智能体 {agent_type} 执行失败: {e}")
+            logger.error("智能体 {} 执行失败 | error={}", agent_type, e)
             orchestrator.agent_results[agent_type] = {
                 "agent_type": agent_type,
                 "status": "failed",
@@ -161,7 +163,7 @@ async def run_analysis_with_streaming(
                 try:
                     await save_func(agent)
                 except Exception as save_err:
-                    logger.warning(f"保存失败智能体 {agent_type} 输出失败: {save_err}")
+                    logger.warning("保存智能体 {} 输出失败 | error={}", agent_type, save_err)
 
             await _emit_event("agent_complete", {
                 "agent_type": agent_type,
@@ -185,6 +187,7 @@ async def run_analysis_with_streaming(
             await event_queue.put(("_agent_done", agent_type))
 
     # ===== 第一阶段：运行所有分析智能体 =====
+    logger.debug("开始第一阶段：运行 {} 个分析智能体 | mode={}", len(orchestrator.analysis_agents), analysis_mode)
     if analysis_mode == "sequential":
         # 串行模式：按顺序逐个执行分析智能体
         for agent in orchestrator.analysis_agents:
@@ -193,7 +196,7 @@ async def run_analysis_with_streaming(
             # 消费当前 agent 的事件
             while True:
                 if await request.is_disconnected():
-                    logger.warning("客户端已断开连接，不再等待分析事件")
+                    logger.warning("客户端已断开连接 | session_id={} | 阶段=分析", session_id)
                     raise asyncio.CancelledError("客户端已断开连接")
                 try:
                     event_type, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
@@ -225,7 +228,7 @@ async def run_analysis_with_streaming(
         while completed_count < analysis_count:
             # 客户端断开检测
             if await request.is_disconnected():
-                logger.warning("客户端已断开连接，不再等待分析事件")
+                logger.warning("客户端已断开连接 | session_id={} | 阶段=分析", session_id)
                 # 注意：不取消 analysis_tasks 中的任务，避免中断 V8/mini-racer 操作
                 # 导致进程级崩溃（py_mini_racer 不支持并发中断）
                 raise asyncio.CancelledError("客户端已断开连接")
@@ -243,6 +246,7 @@ async def run_analysis_with_streaming(
         await asyncio.gather(*analysis_tasks, return_exceptions=True)
 
     # ===== 第二阶段：运行决策智能体 =====
+    logger.info("开始第二阶段：运行决策智能体")
     context["agent_results"] = orchestrator.agent_results
     decision_task = asyncio.create_task(run_single_agent(orchestrator.decision_agent))
 
@@ -250,7 +254,7 @@ async def run_analysis_with_streaming(
     while True:
         # 客户端断开检测
         if await request.is_disconnected():
-            logger.warning("客户端已断开连接，不再等待决策分析事件")
+            logger.warning("客户端已断开连接 | session_id={} | 阶段=决策", session_id)
             # 不取消 decision_task，避免中断 V8/mini-racer 操作
             raise asyncio.CancelledError("客户端已断开连接")
         try:
@@ -278,6 +282,8 @@ async def run_analysis_with_streaming(
 
     # 向重连的 SSE 连接发送分析完成信号，然后清理全局队列和缓冲区
     if session_id:
+        # 清理分析会话全局状态
+        logger.debug("清理分析会话全局状态 | session_id={}", session_id)
         try:
             # 发送完成信号（给异步等待的重连连接）
             await event_queue.put(("_analysis_done", {"session_id": session_id}))

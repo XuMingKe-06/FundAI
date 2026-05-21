@@ -1,7 +1,6 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date, timedelta
-import logging
-
+from loguru import logger
 from app.agents.base import BaseAgent
 from app.data_sources.manager import datasource_manager
 from app.core.calculations import (
@@ -10,10 +9,6 @@ from app.core.calculations import (
     calculate_kdj_from_nav, calculate_support_resistance
 )
 from app.core.data_provenance import annotate_data_source
-
-
-logger = logging.getLogger(__name__)
-
 
 class TechnicalAgent(BaseAgent):
     def __init__(self):

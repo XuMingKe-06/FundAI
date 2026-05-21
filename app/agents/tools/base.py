@@ -8,11 +8,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Type, Callable
 from datetime import date, datetime
 from enum import Enum
-import logging
+from loguru import logger
 import json
-
-logger = logging.getLogger(__name__)
-
 
 class ToolCategory(Enum):
     """工具类别枚举"""
@@ -20,7 +17,6 @@ class ToolCategory(Enum):
     TECHNICAL_INDICATOR = "technical_indicator"
     RISK_METRIC = "risk_metric"
     MARKET_DATA = "market_data"
-
 
 @dataclass
 class ToolResult:
@@ -97,7 +93,6 @@ class ToolResult:
                 except (ValueError, TypeError):
                     warnings.append(f"字段 {field} 值 {value} 无法转换为数值")
         return warnings
-
 
 class BaseTool(ABC):
     """
@@ -233,7 +228,6 @@ class BaseTool(ABC):
             "description": self.description,
             "parameters": self.parameters_schema
         }
-
 
 class ToolRegistry:
     """
@@ -378,7 +372,6 @@ class ToolRegistry:
             self._tools_by_category[category] = []
         logger.info("已清空所有工具注册")
 
-
 def register_tool(tool_class: Type[BaseTool]) -> Type[BaseTool]:
     """
     工具注册装饰器
@@ -392,7 +385,6 @@ def register_tool(tool_class: Type[BaseTool]) -> Type[BaseTool]:
     tool_instance = tool_class()
     registry.register(tool_instance)
     return tool_class
-
 
 def get_tool_registry() -> ToolRegistry:
     """获取工具注册表单例"""

@@ -5,16 +5,11 @@
 采用LLM驱动的分析方法，通过提示词模板引导分析过程
 """
 from typing import Dict, Any, List, Tuple
-import logging
-
+from loguru import logger
 from app.agents.base import BaseAgent
 from app.data_sources.manager import datasource_manager
 from app.core.calculations.share_class import estimate_share_class_fees
 from app.core.data_provenance import annotate_data_source, annotate_estimated_data
-
-
-logger = logging.getLogger(__name__)
-
 
 class CostAgent(BaseAgent):
     """成本分析师智能体"""

@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Callable, Awaitable
 from datetime import datetime, date, timezone
 import json
-import logging
+from loguru import logger
 import asyncio
 import uuid
 import random
@@ -18,9 +18,6 @@ from app.agents.tools.base import ToolRegistry, ToolResult
 from app.agents.prompts import get_prompt_template
 from app.agents.tools import get_tool_chinese_name
 from openai import PermissionDeniedError, RateLimitError, APIError
-
-logger = logging.getLogger(__name__)
-
 
 class BaseAgent(ABC):
     """

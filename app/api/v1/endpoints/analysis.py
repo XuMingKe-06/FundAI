@@ -4,7 +4,7 @@
 """
 import json
 import asyncio
-import logging
+from loguru import logger
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
@@ -44,8 +44,6 @@ from app.services.report_service import (
     save_fallback_report,
 )
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/analysis", tags=["分析"])
 
 
@@ -55,6 +53,7 @@ async def create_analysis_session(
     session: AsyncSession = Depends(get_async_session)
 ):
     """创建分析会话"""
+    logger.info("创建分析会话 | fund_code={} | preference={} | mode={}", request.fund_code, request.user_preference, request.analysis_mode)
     # 查询基金信息
     result = await session.execute(
         select(Fund).where(Fund.fund_code == request.fund_code)
@@ -83,7 +82,7 @@ async def create_analysis_session(
             await session.commit()
             await session.refresh(new_fund)
             fund = new_fund
-            logger.info(f"已从数据源创建基金记录: {fund.fund_code} - {fund.fund_name}")
+            logger.info("从数据源创建基金记录 | fund_code={} | fund_name={}", fund.fund_code, fund.fund_name)
         else:
             # 数据源也没有，返回错误
             raise HTTPException(
@@ -138,6 +137,8 @@ async def stream_analysis(
             detail="会话不存在"
         )
 
+    logger.info("启动分析流 | session_id={} | fund_code={} | mode={}", session_id, analysis_session_obj.fund_code, analysis_session_obj.analysis_mode)
+
     # 如果会话已完成或失败，直接返回对应事件（处理前端重连场景）
     if analysis_session_obj.status == "completed":
         async def completed_event_generator():
@@ -170,7 +171,7 @@ async def stream_analysis(
         async with _active_queues_lock:
             existing_queue = _active_event_queues.get(session_id)
         if existing_queue is not None:
-            logger.info(f"会话 {session_id} 已有活跃的分析流，复用已有队列进行重连")
+            logger.info("分析流重连 | session_id={} | 复用已有队列", session_id)
 
             # 先加载已有 agent outputs，在 reconnect_generator 中作为初始事件发送
             agent_outputs_result = await analysis_session.execute(
@@ -252,7 +253,7 @@ async def stream_analysis(
                             continue  # 内部信号，不转发
                         yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
                 except asyncio.CancelledError:
-                    logger.info(f"客户端断开连接，停止重连流消费: session={session_id}")
+                    logger.info("客户端断开连接 | session_id={} | 阶段=重连流消费", session_id)
             return StreamingResponse(
                 reconnect_generator(),
                 media_type="text/event-stream",
@@ -310,9 +311,9 @@ async def stream_analysis(
                             "agent_scores": prev_report.agent_scores or {},
                             "risk_alerts": prev_report.risk_alerts or [],
                         }
-                        logger.info(f"已加载前次分析报告（会话 {analysis_session_obj.previous_session_id}），用于重新分析参考")
+                        logger.info("加载前次分析报告 | prev_session_id={}", analysis_session_obj.previous_session_id)
                 except Exception as e:
-                    logger.warning(f"加载前次分析报告失败: {e}")
+                    logger.warning("加载前次分析报告失败 | error={}", e)
 
             # 运行完整分析流程（传入 session_id 支持重连复用队列）
             async for event in run_analysis_with_streaming(
@@ -334,7 +335,7 @@ async def stream_analysis(
                     orchestrator
                 )
             except Exception as e:
-                logger.error(f"保存智能体输出失败，继续生成报告: {e}")
+                logger.error("保存智能体输出失败 | session_id={} | error={}", session_id, e)
                 await analysis_session.rollback()
 
             # 保存决策报告到数据库
@@ -347,7 +348,7 @@ async def stream_analysis(
                 )
                 report_saved = True
             except Exception as e:
-                logger.error(f"保存决策报告失败: {e}")
+                logger.error("保存决策报告失败 | session_id={} | error={}", session_id, e)
                 await analysis_session.rollback()
 
             # 如果正常报告保存失败，尝试保存降级报告
@@ -360,7 +361,7 @@ async def stream_analysis(
                         "部分数据获取失败，报告基于有限数据生成"
                     )
                 except Exception as e:
-                    logger.error(f"保存降级报告也失败: {e}")
+                    logger.error("保存降级报告失败 | session_id={} | error={}", session_id, e)
                     await analysis_session.rollback()
 
             # 更新会话状态
@@ -372,7 +373,7 @@ async def stream_analysis(
             yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
 
         except Exception as e:
-            logger.error(f"分析过程发生错误: {e}", exc_info=True)
+            logger.exception("分析过程发生错误 | session_id={} | error={}", session_id, e)
 
             # 更新会话状态为失败
             analysis_session_obj.status = "failed"

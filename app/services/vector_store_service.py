@@ -3,7 +3,7 @@
 使用 ChromaDB 实现向量数据库的存储和检索功能
 支持基金知识库、分析案例库、投资策略库的向量检索
 """
-import logging
+from loguru import logger
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
 from pathlib import Path
@@ -11,9 +11,6 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.settings_manager import get_settings_manager
 from app.services.embedding_service import get_embedding_service
-
-logger = logging.getLogger(__name__)
-
 
 class VectorStoreService:
     """
@@ -402,7 +399,6 @@ class VectorStoreService:
         except Exception as e:
             logger.error(f"重置数据库失败: {e}")
             return False
-
 
 @lru_cache()
 def get_vector_store_service() -> VectorStoreService:

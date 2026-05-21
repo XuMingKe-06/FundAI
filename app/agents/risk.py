@@ -1,8 +1,7 @@
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import date, timedelta
 import numpy as np
-import logging
-
+from loguru import logger
 from app.agents.base import BaseAgent
 from app.data_sources.manager import datasource_manager
 from app.core.calculations import (
@@ -13,9 +12,6 @@ from app.core.calculations import (
 )
 from app.core.data_quality import validate_nav_history, validate_holdings, check_data_timeliness
 from app.core.data_provenance import annotate_data_source, annotate_stale_data
-
-logger = logging.getLogger(__name__)
-
 
 class RiskAgent(BaseAgent):
     def __init__(self):

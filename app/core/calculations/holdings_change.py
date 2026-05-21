@@ -1,8 +1,5 @@
 from typing import Dict, Any, Optional, List
-import logging
-
-logger = logging.getLogger(__name__)
-
+from loguru import logger
 
 def analyze_holdings_change(
     current_holdings: Optional[Dict[str, Any]],
@@ -95,7 +92,6 @@ def analyze_holdings_change(
         "data_sufficient": True
     }
 
-
 def _analyze_industry_changes(
     current_industries: List[Dict[str, Any]],
     previous_industries: List[Dict[str, Any]]
@@ -123,7 +119,6 @@ def _analyze_industry_changes(
 
     changes.sort(key=lambda x: abs(x["change"]), reverse=True)
     return changes[:10]
-
 
 def _estimate_turnover_rate(
     new_entries: set,

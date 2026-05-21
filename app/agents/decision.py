@@ -3,12 +3,8 @@
 负责汇总各分析智能体结果，生成综合投资决策建议
 """
 from typing import Dict, Any
-import logging
-
+from loguru import logger
 from app.agents.base import BaseAgent
-
-logger = logging.getLogger(__name__)
-
 
 class DecisionAgent(BaseAgent):
     def __init__(self):

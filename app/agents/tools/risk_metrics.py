@@ -5,8 +5,7 @@
 """
 from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
-import logging
-
+from loguru import logger
 from app.agents.tools.base import (
     BaseTool, 
     ToolResult, 
@@ -17,9 +16,6 @@ from app.core.calculations import (
     calculate_volatility, calculate_max_drawdown,
     calculate_sharpe_ratio, calculate_beta
 )
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class CalculateVolatilityTool(BaseTool):
@@ -102,7 +98,6 @@ class CalculateVolatilityTool(BaseTool):
             logger.error(f"计算波动率失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算波动率异常: {str(e)}")
 
-
 @register_tool
 class CalculateMaxDrawdownTool(BaseTool):
     """
@@ -178,7 +173,6 @@ class CalculateMaxDrawdownTool(BaseTool):
         except Exception as e:
             logger.error(f"计算最大回撤失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算最大回撤异常: {str(e)}")
-
 
 @register_tool
 class CalculateSharpeRatioTool(BaseTool):
@@ -282,7 +276,6 @@ class CalculateSharpeRatioTool(BaseTool):
         except Exception as e:
             logger.error(f"计算夏普比率失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算夏普比率异常: {str(e)}")
-
 
 @register_tool
 class CalculateBetaTool(BaseTool):

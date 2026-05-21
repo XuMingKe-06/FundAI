@@ -1,8 +1,5 @@
 from typing import Dict, Any, Optional, List
-import logging
-
-logger = logging.getLogger(__name__)
-
+from loguru import logger
 
 def evaluate_manager_stability(manager_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not manager_info:
@@ -79,7 +76,6 @@ def evaluate_manager_stability(manager_info: Optional[Dict[str, Any]]) -> Dict[s
         "assessment": assessment,
         "data_sufficient": True
     }
-
 
 def evaluate_fund_company(fund_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not fund_info:

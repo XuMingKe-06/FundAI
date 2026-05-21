@@ -1,7 +1,7 @@
 """
 Akshare 数据源适配器 - 作为备用数据源
 """
-import logging
+from loguru import logger
 import asyncio
 import akshare as ak
 import pandas as pd
@@ -9,10 +9,6 @@ from datetime import date, datetime
 from typing import Dict, Any, List, Optional
 
 from .base import BaseDataSource
-
-
-logger = logging.getLogger(__name__)
-
 
 class AkshareAdapter(BaseDataSource):
     """Akshare 数据源适配器，作为 Tushare 的备用数据源"""

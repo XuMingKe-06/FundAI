@@ -2,7 +2,7 @@
 基金API端点
 提供基金搜索、详情、净值历史、持仓、费率等查询功能
 """
-import logging
+from loguru import logger
 from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -27,10 +27,7 @@ from app.schemas.fund import (
 )
 from app.data_sources.manager import datasource_manager
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/funds", tags=["基金"])
-
 
 @router.get("/search", response_model=ApiResponse[PaginatedData[FundListItem]])
 async def search_funds(
@@ -138,7 +135,6 @@ async def search_funds(
             items=items
         )
     )
-
 
 @router.get("/{fund_code}", response_model=ApiResponse[FundDetail])
 async def get_fund_detail(
@@ -263,7 +259,6 @@ async def get_fund_detail(
 
     return ApiResponse(code=200, message="success", data=fund_detail)
 
-
 @router.get("/compare", response_model=ApiResponse)
 async def compare_funds(
     fund_codes: str = Query(..., description="基金代码列表，逗号分隔，最多5只"),
@@ -346,7 +341,6 @@ async def compare_funds(
         message="success",
         data={"funds": comparison_results, "count": len(comparison_results)}
     )
-
 
 @router.get("/{fund_code}/nav", response_model=ApiResponse[NavHistoryResponse])
 async def get_fund_nav_history(
@@ -450,7 +444,6 @@ async def get_fund_nav_history(
         )
     )
 
-
 @router.get("/{fund_code}/holdings", response_model=ApiResponse[HoldingsResponse])
 async def get_fund_holdings(
     fund_code: str,
@@ -540,7 +533,6 @@ async def get_fund_holdings(
             industry_distribution=industry_distribution
         )
     )
-
 
 @router.get("/{fund_code}/fees", response_model=ApiResponse[FeesResponse])
 async def get_fund_fees(

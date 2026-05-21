@@ -1,13 +1,9 @@
 from typing import Dict, Any, Optional
-import logging
-
+from loguru import logger
 from app.agents.base import BaseAgent
 from app.core.calculations.style import calculate_style_box
 from app.core.calculations.evaluation import evaluate_manager_stability, evaluate_fund_company
 from app.core.data_provenance import annotate_data_source
-
-logger = logging.getLogger(__name__)
-
 
 class FundamentalAgent(BaseAgent):
     def __init__(self):

@@ -4,7 +4,7 @@
 提供新闻舆情、资金流向、市场热度等市场数据获取工具
 """
 from typing import Dict, Any, List
-import logging
+from loguru import logger
 import asyncio
 
 from app.agents.tools.base import (
@@ -14,9 +14,6 @@ from app.agents.tools.base import (
     register_tool
 )
 from app.data_sources.manager import datasource_manager
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class GetNewsSentimentTool(BaseTool):
@@ -89,7 +86,6 @@ class GetNewsSentimentTool(BaseTool):
             logger.error(f"获取新闻舆情失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取新闻舆情异常: {str(e)}")
 
-
 @register_tool
 class GetFundFlowTool(BaseTool):
     """
@@ -153,7 +149,6 @@ class GetFundFlowTool(BaseTool):
         except Exception as e:
             logger.error(f"获取资金流向失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取资金流向异常: {str(e)}")
-
 
 @register_tool
 class GetSocialHeatTool(BaseTool):
@@ -219,7 +214,6 @@ class GetSocialHeatTool(BaseTool):
             logger.error(f"获取社交媒体热度失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取社交媒体热度异常: {str(e)}")
 
-
 @register_tool
 class GetInstitutionalViewsTool(BaseTool):
     """
@@ -283,7 +277,6 @@ class GetInstitutionalViewsTool(BaseTool):
         except Exception as e:
             logger.error(f"获取机构观点失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取机构观点异常: {str(e)}")
-
 
 @register_tool
 class GetMarketIndexTool(BaseTool):

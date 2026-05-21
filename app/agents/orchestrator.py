@@ -3,7 +3,7 @@
 实现智能体并行调度、辩论机制、渐进式分析和 SSE 事件推送
 """
 import asyncio
-import logging
+from loguru import logger
 from typing import Dict, Any, List, Callable, Optional, AsyncGenerator, Set
 from datetime import datetime, date, timedelta, timezone
 from dataclasses import dataclass, field
@@ -20,8 +20,6 @@ from app.agents.decision import DecisionAgent
 from app.data_sources.manager import datasource_manager
 from app.core.data_quality import validate_nav_history, validate_fund_info, validate_holdings, validate_fees
 from app.core.data_provenance import annotate_data_source
-
-logger = logging.getLogger(__name__)
 
 
 class EventType(Enum):
@@ -336,7 +334,7 @@ class AgentOrchestrator:
         if '.' not in fund_code:
             normalized_code = f"{fund_code}.OF"
 
-        logger.info(f"开始构建分析上下文，原始代码: {fund_code}, 规范化代码: {normalized_code}")
+        logger.info("构建分析上下文 | fund_code={} | normalized_code={}", fund_code, normalized_code)
 
         context: Dict[str, Any] = {
             "fund_code": fund_code,
@@ -371,7 +369,7 @@ class AgentOrchestrator:
                     context["fund_name"] = "未知"
                     context["data_status"]["fund_info"] = "not_found"
         except Exception as e:
-            logger.error(f"获取基金信息失败: {e}")
+            logger.error("获取基金信息失败 | fund_code={} | error={}", normalized_code, e)
             context["fund_info"] = {}
             context["fund_name"] = "未知"
             context["data_status"]["fund_info"] = f"error: {str(e)}"
@@ -405,7 +403,7 @@ class AgentOrchestrator:
                     context["nav_count"] = 0
                     context["data_status"]["nav_history"] = "not_found"
         except Exception as e:
-            logger.error(f"获取净值历史失败: {e}")
+            logger.error("获取净值历史失败 | fund_code={} | error={}", normalized_code, e)
             context["nav_history"] = []
             context["nav_count"] = 0
             context["data_status"]["nav_history"] = f"error: {str(e)}"
@@ -424,7 +422,7 @@ class AgentOrchestrator:
                     context["holdings"] = {}
                     context["data_status"]["holdings"] = "not_found"
         except Exception as e:
-            logger.error(f"获取持仓信息失败: {e}")
+            logger.error("获取持仓信息失败 | fund_code={} | error={}", normalized_code, e)
             context["holdings"] = {}
             context["data_status"]["holdings"] = f"error: {str(e)}"
 
@@ -442,7 +440,7 @@ class AgentOrchestrator:
                     context["fees"] = {}
                     context["data_status"]["fees"] = "not_found"
         except Exception as e:
-            logger.error(f"获取费率信息失败: {e}")
+            logger.error("获取费率信息失败 | fund_code={} | error={}", normalized_code, e)
             context["fees"] = {}
             context["data_status"]["fees"] = f"error: {str(e)}"
 
@@ -460,7 +458,7 @@ class AgentOrchestrator:
                     context["manager_info"] = {}
                     context["data_status"]["manager_info"] = "not_found"
         except Exception as e:
-            logger.error(f"获取基金经理信息失败: {e}")
+            logger.error("获取基金经理信息失败 | fund_code={} | error={}", normalized_code, e)
             context["manager_info"] = {}
             context["data_status"]["manager_info"] = f"error: {str(e)}"
 
@@ -507,7 +505,7 @@ class AgentOrchestrator:
         }
 
         data_summary = {k: v for k, v in context["data_status"].items()}
-        logger.info(f"数据获取摘要: {data_summary}")
+        logger.info("数据获取摘要 | fund_code={} | status={}", fund_code, data_summary)
 
         return context
 
@@ -570,11 +568,13 @@ class AgentOrchestrator:
                 details=agent.details
             )
 
+            logger.debug("智能体执行完成 | agent={} | score={} | duration_ms={}", agent_name, agent.score, agent.duration_ms)
+
             return result
 
         except asyncio.TimeoutError:
             error_msg = f"智能体 {agent_name} 执行超时（超过 {self.AGENT_TIMEOUT_SECONDS} 秒）"
-            logger.error(error_msg)
+            logger.error("智能体执行超时 | agent={} | timeout={}s", agent_name, self.AGENT_TIMEOUT_SECONDS)
 
             await event_callback.emit_error(
                 error_type="TimeoutError",
@@ -597,7 +597,7 @@ class AgentOrchestrator:
 
         except Exception as e:
             error_msg = f"智能体 {agent_name} 执行失败: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.exception("智能体执行失败 | agent={} | error={}", agent_name, str(e))
 
             await event_callback.emit_error(
                 error_type=type(e).__name__,
@@ -743,7 +743,7 @@ class AgentOrchestrator:
                 resolutions.append(resolution)
 
             except Exception as e:
-                logger.error(f"辩论轮次异常: {e}")
+                logger.error("辩论轮次异常 | round={} | error={}", round_num, e)
                 resolutions.append({
                     "agent": agent_a_type,
                     "error": str(e),
@@ -801,7 +801,7 @@ class AgentOrchestrator:
                 context["analysis_mode"] = analysis_mode
 
                 if analysis_mode == "sequential":
-                    logger.info(f"开始串行执行分析智能体, session_id={session_id}")
+                    logger.info("开始串行执行分析智能体 | session_id={}", session_id)
                     for agent in self.analysis_agents:
                         result = await self._run_agent(agent, fund_code, context, event_callback)
                         if isinstance(result, Exception):
@@ -821,7 +821,7 @@ class AgentOrchestrator:
                             current_results={k: {"score": v.get("score"), "summary": v.get("summary")} for k, v in self.agent_results.items()}
                         )
                 else:
-                    logger.info(f"开始并行执行分析智能体, session_id={session_id}")
+                    logger.info("开始并行执行分析智能体 | session_id={}", session_id)
 
                     analysis_tasks = [
                         self._run_agent(agent, fund_code, context, event_callback)
@@ -842,25 +842,25 @@ class AgentOrchestrator:
                             self.agent_results[agent_type] = result
                         self._completed_agents.add(agent_type)
 
-                logger.info(f"所有分析智能体执行完成, session_id={session_id}")
+                logger.info("所有分析智能体执行完成 | session_id={}", session_id)
 
                 if enable_debate:
                     disagreements = self._detect_disagreements()
                     if disagreements:
-                        logger.info(f"检测到{len(disagreements)}个评分分歧，启动辩论机制")
+                        logger.info("检测到评分分歧，启动辩论机制 | 分歧数={}", len(disagreements))
                         for round_num in range(1, self.DEBATE_MAX_ROUNDS + 1):
                             await self._run_debate_round(
                                 fund_code, context, disagreements, event_callback, round_num
                             )
                             new_disagreements = self._detect_disagreements()
                             if not new_disagreements:
-                                logger.info(f"辩论第{round_num}轮后分歧已解决")
+                                logger.info("辩论轮次完成 | round={} | 结果=分歧已解决", round_num)
                                 break
                             if len(new_disagreements) < len(disagreements):
                                 disagreements = new_disagreements
-                                logger.info(f"辩论第{round_num}轮后分歧减少至{len(disagreements)}个")
+                                logger.info("辩论轮次完成 | round={} | 结果=分歧减少 | 剩余={}", round_num, len(disagreements))
                             else:
-                                logger.info(f"辩论第{round_num}轮后分歧未减少，停止辩论")
+                                logger.info("辩论轮次完成 | round={} | 结果=分歧未减少，停止辩论", round_num)
                                 break
                     else:
                         logger.info("未检测到评分分歧，跳过辩论阶段")
@@ -868,7 +868,7 @@ class AgentOrchestrator:
                 decision_context = context.copy()
                 decision_context["agent_results"] = self.agent_results
 
-                logger.info(f"开始执行决策智能体, session_id={session_id}")
+                logger.info("开始执行决策智能体 | session_id={}", session_id)
 
                 decision_result = await self._run_agent(
                     self.decision_agent,
@@ -900,7 +900,7 @@ class AgentOrchestrator:
                 await event_callback.emit_analysis_complete(session_id, final_result)
 
             except Exception as e:
-                logger.error(f"分析流程异常: {e}", exc_info=True)
+                logger.exception("分析流程异常 | session_id={} | error={}", session_id, e)
                 await event_callback.emit_error(
                     error_type="AnalysisError",
                     message=str(e)
@@ -923,7 +923,7 @@ class AgentOrchestrator:
         try:
             await analysis_task
         except Exception as e:
-            logger.error(f"分析任务异常: {e}")
+            logger.exception("分析任务异常 | error={}", e)
 
         remaining_events = event_callback.get_all_events()
         for event in remaining_events:

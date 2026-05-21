@@ -2,7 +2,7 @@
 Tushare Pro API 数据源适配器
 """
 import asyncio
-import logging
+from loguru import logger
 import tushare as ts
 from datetime import date, datetime
 from typing import Dict, Any, List, Optional
@@ -10,10 +10,6 @@ from typing import Dict, Any, List, Optional
 from .base import BaseDataSource
 from app.core.config import settings
 from app.core.settings_manager import get_settings_manager
-
-
-logger = logging.getLogger(__name__)
-
 
 class TushareAdapter(BaseDataSource):
     """Tushare Pro API 数据源适配器"""

@@ -1,14 +1,10 @@
 from typing import Dict, Any, List, Optional
 import numpy as np
-import logging
-
+from loguru import logger
 from app.agents.tools.base import BaseTool, ToolResult, ToolCategory, register_tool
 from app.core.calculations import (
     calculate_var, calculate_cvar, calculate_downside_risk, stress_test
 )
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class CalculateVaRTool(BaseTool):
@@ -72,7 +68,6 @@ class CalculateVaRTool(BaseTool):
             logger.error(f"计算VaR失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算VaR异常: {str(e)}")
 
-
 @register_tool
 class StressTestTool(BaseTool):
     def __init__(self):
@@ -127,7 +122,6 @@ class StressTestTool(BaseTool):
         except Exception as e:
             logger.error(f"压力测试失败: {e}", exc_info=True)
             return ToolResult.fail(f"压力测试异常: {str(e)}")
-
 
 @register_tool
 class CalculateDownsideRiskTool(BaseTool):

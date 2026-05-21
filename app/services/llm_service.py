@@ -3,13 +3,11 @@ LLM 服务模块
 提供统一的大模型调用接口，配置从前端设置页面管理
 """
 import asyncio
-import logging
+from loguru import logger
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from functools import lru_cache
 
 from openai import OpenAI, AsyncOpenAI
-
-logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -65,7 +63,7 @@ class LLMService:
             return
 
         if self._initialized:
-            logger.info(f"检测到 LLM 配置变更，重新初始化: model={self._model} -> {current_model}")
+            logger.info("检测到 LLM 配置变更 | 旧model={} -> 新model={}", self._model, current_model)
 
         self._model = current_model
         self._api_key = current_key
@@ -91,7 +89,7 @@ class LLMService:
         )
 
         self._initialized = True
-        logger.info(f"LLM 服务初始化完成: base_url={self._base_url}, model={self._model}")
+        logger.info("LLM 服务初始化完成 | base_url={} | model={}", self._base_url, self._model)
     
     async def chat(
         self,
@@ -157,6 +155,8 @@ class LLMService:
             模型回复文本
         """
         self._initialize()
+        # 记录异步调用开始
+        logger.debug("LLM 异步调用开始 | model={}", self._model)
         
         if not prompt or not prompt.strip():
             raise ValueError("prompt 参数不能为空")
@@ -173,6 +173,8 @@ class LLMService:
             max_tokens=max_tokens,
             **kwargs
         )
+        # 记录异步调用完成
+        logger.debug("LLM 异步调用完成 | model={} | response_len={}", self._model, len(response.choices[0].message.content) if response.choices else 0)
         
         return response.choices[0].message.content
     
@@ -254,6 +256,8 @@ class LLMService:
             - {"type": "complete", "content": "..."}  - 完成事件
         """
         self._initialize()
+        # 记录流式工具调用开始
+        logger.debug("LLM 流式工具调用开始 | model={} | tools_count={}", self._model, len(tools) if tools else 0)
 
         if messages:
             message_list = messages
@@ -332,9 +336,13 @@ class LLMService:
                 }
                 for _, info in sorted(tool_calls_map.items())
             ]
+            # 记录工具调用返回
+            logger.debug("LLM 流式工具调用返回工具调用 | model={} | tool_count={}", self._model, len(tool_calls_list))
             yield {"type": "tool_calls", "tool_calls": tool_calls_list}
         else:
             final_content = "".join(content_buffer)
+            # 记录流式调用完成
+            logger.debug("LLM 流式工具调用完成 | model={} | content_len={}", self._model, len(final_content))
             yield {"type": "complete", "content": final_content}
 
     async def chat_with_history(
