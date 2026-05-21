@@ -169,6 +169,7 @@
 import { formatTime, formatHoldingPeriod } from '~/utils/format'
 import { useWorkspaceCharts } from '~/composables/useWorkspaceCharts'
 import { useGaugeChart } from '~/composables/useGaugeChart'
+import { useChartManager } from '~/composables/useEcharts'
 import type { AnalysisReport } from '~/services/analysis.service'
 
 const props = defineProps<{
@@ -185,7 +186,9 @@ const {
   disposeCharts,
 } = useWorkspaceCharts()
 
+/* 仪表盘图表使用 useChartManager，确保 ECharts 渲染器正确注册 */
 const gaugeChartRef = ref<HTMLElement | null>(null)
+const gaugeChartManager = useChartManager()
 const { buildGaugeOption } = useGaugeChart()
 
 const expandedSections = reactive({
@@ -236,12 +239,16 @@ const costTableData = computed(() => {
   }))
 })
 
+/* 使用 useChartManager 初始化仪表盘，确保渲染器已注册且实例正确管理 */
 async function initGaugeChart() {
   if (!gaugeChartRef.value) return
-  const echarts = await import('echarts/core').then(m => m)
-  const chart = echarts.init(gaugeChartRef.value)
   const overall = props.report?.scores?.overall ?? 3.0
-  chart.setOption(buildGaugeOption({ value: overall, label: '综合评分' }))
+  const option = buildGaugeOption({ value: overall, label: '综合评分' })
+  if (gaugeChartManager.chartId.value) {
+    gaugeChartManager.update(option)
+  } else {
+    await gaugeChartManager.init(gaugeChartRef.value, option)
+  }
 }
 
 defineExpose({
@@ -257,17 +264,24 @@ watch(() => props.report, (newReport) => {
   }
 })
 
+/* 统一的窗口大小调整处理 */
+function onResize() {
+  handleResize()
+  gaugeChartManager.resize()
+}
+
 onMounted(() => {
   if (props.report) {
     updateChartsDelayed(props.report)
     nextTick(() => initGaugeChart())
   }
-  window.addEventListener('resize', handleResize)
+  window.addEventListener('resize', onResize)
 })
 
 onUnmounted(() => {
   disposeCharts()
-  window.removeEventListener('resize', handleResize)
+  gaugeChartManager.dispose()
+  window.removeEventListener('resize', onResize)
 })
 </script>
 

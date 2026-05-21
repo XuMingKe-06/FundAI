@@ -212,6 +212,9 @@ export function useWorkspaceAnalysis(options: UseWorkspaceAnalysisOptions) {
     /* 清除之前的错误信息 */
     analysisStore.error = null
 
+    /* 切换会话时重置视图为报告视图 */
+    currentView.value = 'report'
+
     /* 并行获取会话详情和报告 */
     const [sessionResult, reportResult] = await Promise.all([
       sessionService.getSession(sessionId).catch(() => null),
