@@ -7,7 +7,7 @@
   >
     <el-form label-position="top">
       <el-form-item label="智能体执行模式">
-        <el-radio-group :model-value="analysisMode" @change="$emit('modeChange', $event)">
+        <el-radio-group :model-value="analysisMode" @change="(val: string | number | boolean | undefined) => $emit('modeChange', val as AnalysisMode)">
           <el-radio value="parallel" class="settings-radio">
             <div class="settings-radio-content">
               <span class="settings-radio-title">并行模式</span>
@@ -68,23 +68,23 @@ defineEmits<{
   align-items: flex-start;
   height: auto !important;
   margin-right: 0 !important;
-  margin-bottom: 12px;
-  padding: 14px 16px;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
   white-space: normal;
   width: 100%;
   box-sizing: border-box;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 :deep(.settings-radio.is-checked) {
-  border-color: #409EFF;
-  background: #ecf5ff;
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
 }
 
 :deep(.settings-radio:hover) {
-  border-color: #b3d8ff;
+  border-color: var(--color-primary-300);
 }
 
 :deep(.settings-radio .el-radio__label) {
@@ -99,29 +99,29 @@ defineEmits<{
 }
 
 .settings-radio-title {
-  font-weight: 600;
-  font-size: 14px;
-  color: #303133;
-  margin-bottom: 4px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
 }
 
 .settings-radio-desc {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
 }
 
 .settings-mode-note {
-  margin-top: 4px;
-  padding: 12px 16px;
-  background: #f5f7fa;
-  border-radius: 6px;
-  font-size: 13px;
-  color: #606266;
-  line-height: 1.6;
+  margin-top: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-base);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
 }
 
 .settings-mode-note strong {
-  color: #409EFF;
+  color: var(--color-primary-500);
 }
 </style>

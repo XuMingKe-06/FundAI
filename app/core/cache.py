@@ -3,6 +3,8 @@
 
 每个缓存项存储为独立的 JSON 文件，包含值和过期时间。
 支持异步操作和 TTL 过期机制。
+使用 asyncio.Lock 保护写操作的并发安全，
+并通过延迟索引保存减少磁盘 I/O。
 """
 import asyncio
 import fnmatch
@@ -14,6 +16,9 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.core.config import settings
+
+# 索引保存延迟时间（秒）
+_INDEX_SAVE_DELAY = 1.0
 
 
 class CacheClient:
@@ -33,6 +38,11 @@ class CacheClient:
         self._cache_dir: Path = Path(settings.CACHE_DIR)
         self._index_file: Path = self._cache_dir / "_index.json"
         self._index: dict = {}
+        # 并发写保护锁
+        self._write_lock = asyncio.Lock()
+        # 延迟索引保存相关
+        self._index_dirty: bool = False
+        self._save_task: Optional[asyncio.Task] = None
         self._ensure_cache_dir()
         self._load_index()
         self._initialized = True
@@ -51,7 +61,7 @@ class CacheClient:
                 self._index = {}
 
     def _save_index(self) -> None:
-        """保存索引文件"""
+        """保存索引文件（同步操作，由延迟机制或关闭时调用）"""
         with open(self._index_file, "w", encoding="utf-8") as f:
             json.dump(self._index, f, ensure_ascii=False)
 
@@ -79,7 +89,8 @@ class CacheClient:
             if entry.get("expire_at") and time.time() > entry["expire_at"]:
                 os.remove(cache_file)
                 self._index.pop(key, None)
-                self._save_index()
+                # 标记索引脏位，不立即保存
+                self._index_dirty = True
                 return None
             return entry
         except (json.JSONDecodeError, OSError):
@@ -98,7 +109,8 @@ class CacheClient:
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(entry, f, ensure_ascii=False)
         self._index[key] = filename
-        self._save_index()
+        # 标记索引脏位，不立即保存
+        self._index_dirty = True
 
     def _delete_entry(self, key: str) -> None:
         """删除缓存条目（同步操作）"""
@@ -106,7 +118,8 @@ class CacheClient:
         if cache_file.exists():
             os.remove(cache_file)
         self._index.pop(key, None)
-        self._save_index()
+        # 标记索引脏位，不立即保存
+        self._index_dirty = True
 
     def _match_keys(self, pattern: str) -> List[str]:
         """按模式匹配获取键列表（同步操作）"""
@@ -119,6 +132,19 @@ class CacheClient:
                     matched.append(key)
         return matched
 
+    def _schedule_index_save(self) -> None:
+        """安排延迟保存索引，合并短时间内的多次写入"""
+        if self._save_task and not self._save_task.done():
+            self._save_task.cancel()
+        self._save_task = asyncio.ensure_future(self._delayed_save_index())
+
+    async def _delayed_save_index(self) -> None:
+        """延迟保存索引，等待 _INDEX_SAVE_DELAY 秒后执行，减少磁盘 I/O"""
+        await asyncio.sleep(_INDEX_SAVE_DELAY)
+        if self._index_dirty:
+            await asyncio.to_thread(self._save_index)
+            self._index_dirty = False
+
     async def get(self, key: str) -> Optional[str]:
         """获取缓存值
 
@@ -130,6 +156,9 @@ class CacheClient:
         """
         entry = await asyncio.to_thread(self._read_entry, key)
         if entry is None:
+            # 读取时可能因过期清理而标记了脏位，安排保存
+            if self._index_dirty:
+                self._schedule_index_save()
             return None
         return entry.get("value")
 
@@ -141,7 +170,9 @@ class CacheClient:
             value: 缓存值
             expire: 过期时间（秒），None 表示永不过期
         """
-        await asyncio.to_thread(self._write_entry, key, value, expire)
+        async with self._write_lock:
+            await asyncio.to_thread(self._write_entry, key, value, expire)
+        self._schedule_index_save()
 
     async def delete(self, key: str) -> None:
         """删除缓存键
@@ -149,7 +180,9 @@ class CacheClient:
         Args:
             key: 要删除的缓存键
         """
-        await asyncio.to_thread(self._delete_entry, key)
+        async with self._write_lock:
+            await asyncio.to_thread(self._delete_entry, key)
+        self._schedule_index_save()
 
     async def keys(self, pattern: str = "*") -> List[str]:
         """按模式匹配获取键列表，支持 * 通配符
@@ -160,11 +193,25 @@ class CacheClient:
         Returns:
             匹配的键名列表
         """
-        return await asyncio.to_thread(self._match_keys, pattern)
+        result = await asyncio.to_thread(self._match_keys, pattern)
+        # 匹配过程中可能清理了过期条目，安排保存
+        if self._index_dirty:
+            self._schedule_index_save()
+        return result
 
     async def close(self) -> None:
-        """关闭缓存，保存索引"""
-        await asyncio.to_thread(self._save_index)
+        """关闭缓存，取消待执行的延迟保存并强制写入脏索引"""
+        # 取消待执行的延迟保存任务
+        if self._save_task and not self._save_task.done():
+            self._save_task.cancel()
+            try:
+                await self._save_task
+            except asyncio.CancelledError:
+                pass
+        # 如果索引有未保存的变更，立即保存
+        if self._index_dirty:
+            await asyncio.to_thread(self._save_index)
+            self._index_dirty = False
 
     async def ping(self) -> bool:
         """检查缓存是否可用

@@ -7,13 +7,13 @@
 
 /* ==== 类型导入（编译时擦除，不产生运行时开销） ==== */
 import type { ComposeOption } from 'echarts/core'
-import type { BarSeriesOption, LineSeriesOption, PieSeriesOption, RadarSeriesOption } from 'echarts/charts'
+import type { BarSeriesOption, LineSeriesOption, PieSeriesOption, RadarSeriesOption, GaugeSeriesOption, SunburstSeriesOption, HeatmapSeriesOption } from 'echarts/charts'
 import type {
   TitleComponentOption,
   TooltipComponentOption,
   GridComponentOption,
   LegendComponentOption,
-  GridSimpleComponentOption,
+  VisualMapComponentOption,
 } from 'echarts/components'
 import { ref, onUnmounted } from 'vue'
 
@@ -39,11 +39,10 @@ async function ensureEcharts(): Promise<any> {
     ])
 
     core.use([
-      charts.BarChart, charts.LineChart, charts.PieChart, charts.RadarChart,
+      charts.BarChart, charts.LineChart, charts.PieChart, charts.RadarChart, charts.GaugeChart, charts.SunburstChart, charts.HeatmapChart,
       components.TitleComponent, components.TooltipComponent, components.GridComponent,
-      components.GridSimpleComponent, components.LegendComponent,
+      components.LegendComponent, components.VisualMapComponent,
       components.DataZoomComponent, components.ToolboxComponent,
-      components.VisualMapComponent,
       renderers.CanvasRenderer,
       features.LegacyGridContainLabel,
     ])
@@ -62,11 +61,14 @@ export type ECOption = ComposeOption<
   | PieSeriesOption
   | LineSeriesOption
   | RadarSeriesOption
+  | GaugeSeriesOption
+  | SunburstSeriesOption
+  | HeatmapSeriesOption
   | TitleComponentOption
   | TooltipComponentOption
   | GridComponentOption
-  | GridSimpleComponentOption
   | LegendComponentOption
+  | VisualMapComponentOption
 >
 
 export interface TrendDataItem {
@@ -338,18 +340,18 @@ export const useTrendChart = (
         type: 'line',
         data: upperValues,
         lineStyle: { opacity: 0 },
-        stack: 'confidence',
         symbol: 'none',
         areaStyle: { color: chartColors.confidence },
+        z: 1,
       },
       {
         name: '置信区间下界',
         type: 'line',
         data: lowerValues,
         lineStyle: { opacity: 0 },
-        stack: 'confidence',
         symbol: 'none',
         areaStyle: { color: '#fff' },
+        z: 2,
       },
     ],
   }

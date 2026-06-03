@@ -2,12 +2,12 @@
 会话管理API端点（无需认证）
 """
 import json
-import logging
+from loguru import logger
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, delete
+from sqlalchemy import select, desc, delete, func
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_async_session
@@ -16,10 +16,7 @@ from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
 from app.schemas.common import ApiResponse, PaginatedData
 from app.schemas.analysis import SessionListItem, SessionDetail, AgentOutputInfo
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/sessions", tags=["会话"])
-
 
 @router.get("", response_model=ApiResponse[PaginatedData[SessionListItem]])
 async def get_sessions(
@@ -39,13 +36,13 @@ async def get_sessions(
     if status:
         query = query.where(AnalysisSession.status == status)
 
-    # 计算总数
-    count_query = select(AnalysisSession.id)
+    # 计算总数（使用 SELECT COUNT 避免加载全部数据到内存）
+    count_query = select(func.count(AnalysisSession.id))
     if status:
         count_query = count_query.where(AnalysisSession.status == status)
 
     total_result = await session.execute(count_query)
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     # 分页查询
     offset = (page - 1) * size
@@ -94,7 +91,6 @@ async def get_sessions(
         )
     )
 
-
 def _direction_to_chinese(direction: Optional[str]) -> Optional[str]:
     """将投资方向英文标识转换为中文"""
     if not direction:
@@ -105,7 +101,6 @@ def _direction_to_chinese(direction: Optional[str]) -> Optional[str]:
         "hold": "持有"
     }
     return direction_map.get(direction, direction)
-
 
 @router.delete("/{session_id}", response_model=ApiResponse[None])
 async def delete_session(
@@ -137,7 +132,6 @@ async def delete_session(
 
     logger.info(f"会话 {session_id} 已被删除")
     return ApiResponse(code=200, message="会话已删除", data=None)
-
 
 @router.get("/{session_id}", response_model=ApiResponse[SessionDetail])
 async def get_session_detail(

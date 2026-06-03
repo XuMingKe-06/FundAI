@@ -4,13 +4,6 @@
     <nav class="navbar">
       <div class="nav-container">
         <div class="nav-logo">
-          <svg class="logo-icon" width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <rect x="2" y="20" width="6" height="10" rx="1" fill="#3B82F6"/>
-            <rect x="10" y="14" width="6" height="16" rx="1" fill="#60A5FA"/>
-            <rect x="18" y="8" width="6" height="22" rx="1" fill="#3B82F6"/>
-            <rect x="26" y="2" width="4" height="28" rx="1" fill="#60A5FA"/>
-            <path d="M4 18 L12 12 L20 16 L28 6" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          </svg>
           <span class="logo-text">FundAI</span>
         </div>
         <div class="nav-right">
@@ -59,11 +52,11 @@
               <div
                 v-else
                 v-for="item in suggestionItems"
-                :key="item.fund_code"
+                :key="item.fundCode"
                 class="suggestion-item"
-                @click="selectFund(item.fund_code, item.fund_name)"
+                @click="selectFund(item.fundCode, item.fundName)"
               >
-                {{ item.fund_code }} - {{ item.fund_name }}
+                {{ item.fundCode }} - {{ item.fundName }}
               </div>
               <!-- 无结果提示 -->
               <div
@@ -296,21 +289,21 @@
           <div class="footer-links">
             <div class="footer-column">
               <h4>关于我们</h4>
-              <a href="#">公司介绍</a>
-              <a href="#">团队成员</a>
-              <a href="#">联系我们</a>
+              <span class="footer-link-disabled">公司介绍</span>
+              <span class="footer-link-disabled">团队成员</span>
+              <span class="footer-link-disabled">联系我们</span>
             </div>
             <div class="footer-column">
               <h4>产品服务</h4>
-              <a href="#">功能介绍</a>
-              <a href="#">使用指南</a>
-              <a href="#">API文档</a>
+              <NuxtLink to="/workspace" class="footer-link">功能介绍</NuxtLink>
+              <span class="footer-link-disabled">使用指南</span>
+              <span class="footer-link-disabled">API文档</span>
             </div>
             <div class="footer-column">
               <h4>法律条款</h4>
-              <a href="#">使用条款</a>
-              <a href="#">隐私政策</a>
-              <a href="#">免责声明</a>
+              <span class="footer-link-disabled">使用条款</span>
+              <span class="footer-link-disabled">隐私政策</span>
+              <span class="footer-link-disabled">免责声明</span>
             </div>
           </div>
         </div>
@@ -339,6 +332,7 @@
 <script setup lang="ts">
 /* 导入基金搜索服务 */
 import { useFundService, type FundSearchItem } from '~/composables/useFundService'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 
@@ -432,7 +426,7 @@ function navigateToWorkspacePage() {
 function startAnalysis() {
   const inputValue = fundInput.value.trim()
   if (!inputValue) {
-    alert('请输入基金代码或名称')
+    ElMessage.warning('请输入基金代码或名称')
     return
   }
 
@@ -441,7 +435,7 @@ function startAnalysis() {
 
   /* 验证基金代码格式 */
   if (!/^\d{6}$/.test(fundCode)) {
-    alert('请输入有效的6位基金代码')
+    ElMessage.warning('请输入有效的6位基金代码')
     return
   }
 

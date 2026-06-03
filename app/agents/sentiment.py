@@ -39,15 +39,22 @@ class SentimentAgent(BaseAgent):
                 use_rag=True,
                 use_tools=True
             )
-            
+
+            if self.score is not None:
+                self.confidence = self.confidence or 3
+                self.data_sufficiency = self.data_sufficiency or "partial"
+
             await self.add_thinking(f"情绪分析完成：评分 {self.score}")
             
             return self.to_dict()
             
         except Exception as e:
             await self.add_thinking(f"情绪分析过程中发生错误: {str(e)}")
-            self.score = 0.0
-            self.summary = "情绪分析暂时不可用，默认为中性"
+            self.score = None
+            self.summary = "情绪分析数据源暂不可用，无法进行情绪分析"
+            self.data_sufficient = False
+            self.confidence = 1
+            self.data_sufficiency = "insufficient"
             self.details = {
                 "sentiment_score": 0,
                 "error": str(e),

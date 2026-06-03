@@ -4,7 +4,7 @@
 提供新闻舆情、资金流向、市场热度等市场数据获取工具
 """
 from typing import Dict, Any, List
-import logging
+from loguru import logger
 import asyncio
 
 from app.agents.tools.base import (
@@ -14,9 +14,6 @@ from app.agents.tools.base import (
     register_tool
 )
 from app.data_sources.manager import datasource_manager
-
-logger = logging.getLogger(__name__)
-
 
 @register_tool
 class GetNewsSentimentTool(BaseTool):
@@ -71,16 +68,9 @@ class GetNewsSentimentTool(BaseTool):
             news_data = await datasource_manager.get_news_sentiment(fund_code, days)
             
             if news_data is None:
-                return ToolResult.ok(
-                    data={
-                        "total": 0,
-                        "positive": 0,
-                        "negative": 0,
-                        "neutral": 0,
-                        "sentiment_score": 0.0,
-                        "key_news": [],
-                        "note": "暂无新闻数据"
-                    }
+                return ToolResult.fail(
+                    "新闻舆情数据源暂不可用，无法获取该基金的新闻数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -95,7 +85,6 @@ class GetNewsSentimentTool(BaseTool):
         except Exception as e:
             logger.error(f"获取新闻舆情失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取新闻舆情异常: {str(e)}")
-
 
 @register_tool
 class GetFundFlowTool(BaseTool):
@@ -144,13 +133,9 @@ class GetFundFlowTool(BaseTool):
             flow_data = await datasource_manager.get_fund_flow(fund_code)
             
             if flow_data is None:
-                return ToolResult.ok(
-                    data={
-                        "net_inflow_5d": 0.0,
-                        "net_inflow_20d": 0.0,
-                        "trend": "未知",
-                        "note": "暂无资金流向数据"
-                    }
+                return ToolResult.fail(
+                    "资金流向数据源暂不可用，无法获取该基金的资金流向数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -164,7 +149,6 @@ class GetFundFlowTool(BaseTool):
         except Exception as e:
             logger.error(f"获取资金流向失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取资金流向异常: {str(e)}")
-
 
 @register_tool
 class GetSocialHeatTool(BaseTool):
@@ -213,13 +197,9 @@ class GetSocialHeatTool(BaseTool):
             heat_data = await datasource_manager.get_social_heat(fund_code)
             
             if heat_data is None:
-                return ToolResult.ok(
-                    data={
-                        "heat_ratio": 1.0,
-                        "level": "medium",
-                        "trend": "平稳",
-                        "note": "暂无社交媒体热度数据"
-                    }
+                return ToolResult.fail(
+                    "社交媒体热度数据源暂不可用，无法获取该基金的热度数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -233,7 +213,6 @@ class GetSocialHeatTool(BaseTool):
         except Exception as e:
             logger.error(f"获取社交媒体热度失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取社交媒体热度异常: {str(e)}")
-
 
 @register_tool
 class GetInstitutionalViewsTool(BaseTool):
@@ -282,17 +261,9 @@ class GetInstitutionalViewsTool(BaseTool):
             views_data = await datasource_manager.get_institutional_views(fund_code)
             
             if views_data is None:
-                return ToolResult.ok(
-                    data={
-                        "buy": 0,
-                        "overweight": 0,
-                        "neutral": 0,
-                        "underweight": 0,
-                        "sell": 0,
-                        "total_reports": 0,
-                        "consensus": "中性",
-                        "note": "暂无机构观点数据"
-                    }
+                return ToolResult.fail(
+                    "机构观点数据源暂不可用，无法获取该基金的机构评级数据",
+                    metadata={"fund_code": fund_code, "data_available": False}
                 )
             
             return ToolResult.ok(
@@ -306,7 +277,6 @@ class GetInstitutionalViewsTool(BaseTool):
         except Exception as e:
             logger.error(f"获取机构观点失败: {e}", exc_info=True)
             return ToolResult.fail(f"获取机构观点异常: {str(e)}")
-
 
 @register_tool
 class GetMarketIndexTool(BaseTool):
@@ -369,13 +339,9 @@ class GetMarketIndexTool(BaseTool):
             )
             
             if not index_data:
-                return ToolResult.ok(
-                    data={
-                        "index_code": index_code,
-                        "index_name": self._get_index_name(index_code),
-                        "data": [],
-                        "note": "暂无指数数据"
-                    }
+                return ToolResult.fail(
+                    f"无法获取指数 {index_code} 的行情数据",
+                    metadata={"index_code": index_code, "data_available": False}
                 )
             
             return ToolResult.ok(

@@ -3,17 +3,18 @@
 提供文档导入、解析、分块和检索功能
 支持 TXT、Markdown、PDF 等多种文档格式
 """
+from loguru import logger
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import settings
+from app.core.settings_manager import get_settings_manager
 from app.schemas.knowledge import KnowledgeDocumentType
 from app.services.vector_store_service import get_vector_store_service
-
 
 class KnowledgeService:
     """
@@ -29,8 +30,10 @@ class KnowledgeService:
         获取向量存储服务实例
         """
         self._vector_store = get_vector_store_service()
-        self._chunk_size = settings.RAG_CHUNK_SIZE
-        self._chunk_overlap = settings.RAG_CHUNK_OVERLAP
+        # 优先从 config.json 读取（前端可编辑），回退到 .env 配置
+        sm = get_settings_manager()
+        self._chunk_size = sm.get("rag.chunk_size", settings.RAG_CHUNK_SIZE)
+        self._chunk_overlap = sm.get("rag.chunk_overlap", settings.RAG_CHUNK_OVERLAP)
     
     def _parse_text_file(self, file_path: str) -> str:
         """
@@ -231,7 +234,7 @@ class KnowledgeService:
         if not chunks:
             raise ValueError("文档分块失败，内容可能为空")
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         tags = tags or []
         metadata = metadata or {}
         
@@ -285,7 +288,7 @@ class KnowledgeService:
                 ids=results["ids"]
             )
         except Exception as e:
-            print(f"删除文档失败: {e}")
+            logger.error(f"删除文档失败: {e}")
             return False
     
     def search(
@@ -403,9 +406,8 @@ class KnowledgeService:
                 "updated_at": first_metadata.get("updated_at", "")
             }
         except Exception as e:
-            print(f"获取文档详情失败: {e}")
+            logger.error(f"获取文档详情失败: {e}")
             return None
-
 
 def get_knowledge_service() -> KnowledgeService:
     """

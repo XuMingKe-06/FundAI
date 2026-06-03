@@ -3,13 +3,11 @@ LLM 服务模块
 提供统一的大模型调用接口，配置从前端设置页面管理
 """
 import asyncio
-import logging
+from loguru import logger
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from functools import lru_cache
 
 from openai import OpenAI, AsyncOpenAI
-
-logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -29,6 +27,7 @@ class LLMService:
         """
         if cls._instance is None:
             cls._instance = super().__new__(cls)
+            cls._instance._init_done = False
         return cls._instance
     
     def __init__(self):
@@ -36,10 +35,13 @@ class LLMService:
         初始化 LLM 服务
         延迟加载客户端，不在初始化时创建连接
         """
+        if self._init_done:
+            return
         self._model: Optional[str] = None
         self._api_key: Optional[str] = None
         self._base_url: Optional[str] = None
         self._initialized = False
+        self._init_done = True
     
     def _get_settings_manager(self):
         """获取配置管理器（延迟导入避免循环依赖）"""
@@ -61,7 +63,7 @@ class LLMService:
             return
 
         if self._initialized:
-            logger.info(f"检测到 LLM 配置变更，重新初始化: model={self._model} -> {current_model}")
+            logger.info("检测到 LLM 配置变更 | 旧model={} -> 新model={}", self._model, current_model)
 
         self._model = current_model
         self._api_key = current_key
@@ -87,9 +89,9 @@ class LLMService:
         )
 
         self._initialized = True
-        logger.info(f"LLM 服务初始化完成: base_url={self._base_url}, model={self._model}")
+        logger.info("LLM 服务初始化完成 | base_url={} | model={}", self._base_url, self._model)
     
-    def chat(
+    async def chat(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -98,7 +100,7 @@ class LLMService:
         **kwargs
     ) -> str:
         """
-        单轮对话（同步）
+        单轮对话（异步，内部使用 asyncio.to_thread 包装同步调用）
         
         Args:
             prompt: 用户输入
@@ -120,7 +122,8 @@ class LLMService:
             messages.append({"role": "system", "content": system_prompt.strip()})
         messages.append({"role": "user", "content": prompt.strip()})
         
-        response = self._client.chat.completions.create(
+        response = await asyncio.to_thread(
+            self._client.chat.completions.create,
             model=self._model,
             messages=messages,
             temperature=temperature,
@@ -152,6 +155,8 @@ class LLMService:
             模型回复文本
         """
         self._initialize()
+        # 记录异步调用开始
+        logger.debug("LLM 异步调用开始 | model={}", self._model)
         
         if not prompt or not prompt.strip():
             raise ValueError("prompt 参数不能为空")
@@ -168,6 +173,8 @@ class LLMService:
             max_tokens=max_tokens,
             **kwargs
         )
+        # 记录异步调用完成
+        logger.debug("LLM 异步调用完成 | model={} | response_len={}", self._model, len(response.choices[0].message.content) if response.choices else 0)
         
         return response.choices[0].message.content
     
@@ -249,6 +256,8 @@ class LLMService:
             - {"type": "complete", "content": "..."}  - 完成事件
         """
         self._initialize()
+        # 记录流式工具调用开始
+        logger.debug("LLM 流式工具调用开始 | model={} | tools_count={}", self._model, len(tools) if tools else 0)
 
         if messages:
             message_list = messages
@@ -327,9 +336,13 @@ class LLMService:
                 }
                 for _, info in sorted(tool_calls_map.items())
             ]
+            # 记录工具调用返回
+            logger.debug("LLM 流式工具调用返回工具调用 | model={} | tool_count={}", self._model, len(tool_calls_list))
             yield {"type": "tool_calls", "tool_calls": tool_calls_list}
         else:
             final_content = "".join(content_buffer)
+            # 记录流式调用完成
+            logger.debug("LLM 流式工具调用完成 | model={} | content_len={}", self._model, len(final_content))
             yield {"type": "complete", "content": final_content}
 
     async def chat_with_history(
@@ -415,7 +428,7 @@ class LLMService:
         
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].content
+                yield chunk.choices[0].delta.content
     
     def get_client(self) -> OpenAI:
         """

@@ -8,7 +8,7 @@
 
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event
 
 from app.core.config import settings
@@ -19,9 +19,12 @@ os.makedirs("data", exist_ok=True)
 # 异步引擎（SQLite + aiosqlite）
 # SQLite 不支持连接池参数（pool_size / max_overflow），因此移除
 # check_same_thread=False 允许跨线程使用同一连接（异步场景必需）
+# echo=False：不使用 SQLAlchemy 自带的 echo 机制输出 SQL 日志，
+# 而是由 logger.py 的 InterceptHandler 统一拦截 sqlalchemy.engine 日志，
+# 避免控制台双输出，并确保 SQL 日志正确写入文件
 async_engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=False,
     connect_args={"check_same_thread": False},
 )
 
@@ -47,7 +50,8 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 # 声明基类（所有 ORM 模型继承此类）
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 
 async def get_async_session() -> AsyncSession:

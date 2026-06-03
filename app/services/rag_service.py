@@ -4,13 +4,10 @@ RAG (Retrieval-Augmented Generation) 服务模块
 """
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
-import logging
-
+from loguru import logger
 from app.core.config import settings
+from app.core.settings_manager import get_settings_manager
 from app.services.vector_store_service import get_vector_store_service
-
-logger = logging.getLogger(__name__)
-
 
 class RAGService:
     """
@@ -34,7 +31,9 @@ class RAGService:
         获取向量存储服务实例和配置参数
         """
         self._vector_store = get_vector_store_service()
-        self._default_top_k = settings.RAG_TOP_K
+        # 优先从 config.json 读取（前端可编辑），回退到 .env 配置
+        sm = get_settings_manager()
+        self._default_top_k = sm.get("rag.top_k", settings.RAG_TOP_K)
         self._embedding_checked = False
         self._embedding_configured = None
     
@@ -344,7 +343,6 @@ class RAGService:
         self._embedding_checked = False
         self._embedding_configured = None
         logger.info("RAG服务: 配置缓存已重置")
-
 
 @lru_cache()
 def get_rag_service() -> RAGService:

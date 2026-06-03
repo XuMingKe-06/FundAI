@@ -2,12 +2,12 @@
 基金API端点
 提供基金搜索、详情、净值历史、持仓、费率等查询功能
 """
-import logging
+from loguru import logger
 from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 import json
 
 from app.core.database import get_async_session
@@ -27,10 +27,7 @@ from app.schemas.fund import (
 )
 from app.data_sources.manager import datasource_manager
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/funds", tags=["基金"])
-
 
 @router.get("/search", response_model=ApiResponse[PaginatedData[FundListItem]])
 async def search_funds(
@@ -58,8 +55,8 @@ async def search_funds(
     if type:
         query = query.where(Fund.fund_type == type)
 
-    # 计算总数
-    count_query = select(Fund.fund_code)
+    # 计算总数（使用 SELECT COUNT 避免加载全部数据到内存）
+    count_query = select(func.count(Fund.id))
     if keyword:
         count_query = count_query.where(
             or_(
@@ -71,7 +68,7 @@ async def search_funds(
         count_query = count_query.where(Fund.fund_type == type)
 
     total_result = await session.execute(count_query)
-    db_total = len(total_result.all())
+    db_total = total_result.scalar() or 0
 
     # 如果数据库中没有结果，尝试从数据源搜索
     if db_total == 0:
@@ -138,7 +135,6 @@ async def search_funds(
             items=items
         )
     )
-
 
 @router.get("/{fund_code}", response_model=ApiResponse[FundDetail])
 async def get_fund_detail(
@@ -263,6 +259,88 @@ async def get_fund_detail(
 
     return ApiResponse(code=200, message="success", data=fund_detail)
 
+@router.get("/compare", response_model=ApiResponse)
+async def compare_funds(
+    fund_codes: str = Query(..., description="基金代码列表，逗号分隔，最多5只"),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """对比多只基金的关键指标"""
+    codes = [c.strip() for c in fund_codes.split(",") if c.strip()]
+    if not codes:
+        raise HTTPException(status_code=400, detail="请提供至少一只基金代码")
+    if len(codes) > 5:
+        raise HTTPException(status_code=400, detail="最多对比5只基金")
+
+    from app.core.calculations import (
+        calculate_volatility, calculate_max_drawdown, calculate_sharpe_ratio,
+        calculate_style_box, calculate_dca_analysis
+    )
+    import numpy as np
+
+    comparison_results = []
+    for code in codes:
+        try:
+            fund_info = await datasource_manager.get_fund_info(code)
+            nav_history = await datasource_manager.get_nav_history(
+                code,
+                start_date=date.today() - timedelta(days=365),
+                end_date=date.today()
+            )
+            holdings = await datasource_manager.get_holdings(code)
+            fees = await datasource_manager.get_fund_fees(code)
+
+            fund_data = {
+                "fund_code": code,
+                "fund_name": fund_info.get("fund_name", "未知") if fund_info else "未知",
+                "fund_type": fund_info.get("fund_type", "") if fund_info else "",
+                "fund_manager": fund_info.get("fund_manager", "") if fund_info else "",
+                "scale": fund_info.get("scale") if fund_info else None,
+            }
+
+            if nav_history and len(nav_history) > 20:
+                nav_values = np.array([
+                    float(d.get("nav", 0)) for d in nav_history
+                ])
+                nav_values = nav_values[nav_values > 0]
+
+                if len(nav_values) > 20:
+                    returns = np.diff(nav_values) / nav_values[:-1]
+                    fund_data["volatility"] = calculate_volatility(returns)
+                    max_dd, _ = calculate_max_drawdown(nav_values)
+                    fund_data["max_drawdown"] = max_dd
+                    fund_data["sharpe_ratio"] = calculate_sharpe_ratio(returns)
+                    fund_data["current_nav"] = float(nav_values[-1])
+                    fund_data["nav_count"] = len(nav_values)
+
+                    annual_return = (nav_values[-1] / nav_values[0] - 1) * 252 / len(nav_values) * 100
+                    fund_data["annual_return"] = round(annual_return, 2)
+
+            if holdings:
+                style = calculate_style_box(holdings)
+                if style.get("data_sufficient"):
+                    fund_data["style_box"] = style["style_box_position"]
+                    fund_data["market_cap_style"] = style["market_cap_style"]
+                    fund_data["value_style"] = style["value_style"]
+
+            if fees:
+                fund_data["purchase_fee"] = fees.get("purchase_fee")
+                fund_data["management_fee"] = fees.get("management_fee")
+
+            comparison_results.append(fund_data)
+
+        except Exception as e:
+            logger.error(f"对比分析基金 {code} 失败: {e}")
+            comparison_results.append({
+                "fund_code": code,
+                "fund_name": "获取失败",
+                "error": str(e)
+            })
+
+    return ApiResponse(
+        code=200,
+        message="success",
+        data={"funds": comparison_results, "count": len(comparison_results)}
+    )
 
 @router.get("/{fund_code}/nav", response_model=ApiResponse[NavHistoryResponse])
 async def get_fund_nav_history(
@@ -366,7 +444,6 @@ async def get_fund_nav_history(
         )
     )
 
-
 @router.get("/{fund_code}/holdings", response_model=ApiResponse[HoldingsResponse])
 async def get_fund_holdings(
     fund_code: str,
@@ -456,7 +533,6 @@ async def get_fund_holdings(
             industry_distribution=industry_distribution
         )
     )
-
 
 @router.get("/{fund_code}/fees", response_model=ApiResponse[FeesResponse])
 async def get_fund_fees(

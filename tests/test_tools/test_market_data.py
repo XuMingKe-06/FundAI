@@ -51,8 +51,8 @@ class TestGetNewsSentimentTool:
             tool = GetNewsSentimentTool()
             result = await tool.execute(fund_code="000001")
             
-            assert result.success is True
-            assert result.data["total"] == 0
+            assert result.success is False
+            assert result.data is None
 
 
 class TestGetFundFlowTool:

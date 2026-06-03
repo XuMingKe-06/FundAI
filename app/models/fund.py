@@ -2,7 +2,7 @@
 基金模型 - 适配 SQLite
 """
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import Column, String, Boolean, DateTime, Date, Numeric, Text, Integer, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import relationship
 
@@ -42,9 +42,9 @@ class Fund(Base):
     # 份额类别（A/B/C）
     share_class = Column(String(1), nullable=True)
     # 创建时间
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     # 更新时间
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联关系
     nav_history = relationship("FundNav", back_populates="fund", cascade="all, delete-orphan")
@@ -73,7 +73,7 @@ class FundNav(Base):
     # 日增长率
     daily_growth_rate = Column(Numeric(8, 4), nullable=True)
     # 创建时间
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # 联合唯一约束：同一基金同一日期仅一条净值记录
     __table_args__ = (
@@ -110,7 +110,7 @@ class FundHolding(Base):
     # 所属行业
     industry = Column(String(50), nullable=True)
     # 创建时间
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # 关联关系
     fund = relationship("Fund", back_populates="holdings")
@@ -140,9 +140,9 @@ class FundFee(Base):
     # 折扣费率
     discount_rate = Column(Numeric(3, 2), nullable=True)
     # 创建时间
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     # 更新时间
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联关系
     fund = relationship("Fund", back_populates="fees")

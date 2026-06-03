@@ -134,7 +134,13 @@ class DecisionPromptTemplate(PromptTemplate):
 决策智能体不输出单独的score，而是输出：
 - short_term_decision：短线决策建议
 - long_term_decision：长线决策建议
-- agent_scores：各智能体评分汇总"""
+- agent_scores：各智能体评分汇总
+
+## 数据诚实规则
+1. 如果提供的数据中包含 '数据不可用'、'暂不支持' 或 ToolResult.fail 的结果，你必须在分析中明确标注该数据不可用
+2. 绝对不得在数据不足时编造或推测分析结论
+3. 如果关键数据缺失，应降低 confidence 评分并在 summary 中说明
+4. 不得将默认值或占位数据当作真实数据进行分析"""
 
     def get_user_prompt(self, context: Dict[str, Any]) -> str:
         """获取用户提示词"""

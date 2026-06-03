@@ -1,27 +1,108 @@
 """
 pytest配置和公共fixtures
 
-提供测试所需的模拟数据和模拟服务
+提供测试所需的模拟数据、模拟服务、测试数据库和测试客户端
 """
 import pytest
 import asyncio
 import json
 from unittest.mock import Mock, AsyncMock, patch
-from typing import Dict, Any, List
+from typing import Dict, Any, List, AsyncGenerator
 from datetime import date, timedelta
 import sys
 import os
 
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.database import Base, get_async_session
+from app.main import app
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """创建事件循环"""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
+# ==================== 测试数据库 ====================
+
+# 使用 SQLite 内存数据库进行测试
+TEST_DATABASE_URL = "sqlite+aiosqlite://"
+
+test_engine = create_async_engine(
+    TEST_DATABASE_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+)
+
+TestSessionLocal = async_sessionmaker(
+    bind=test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+
+async def override_get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    """替代 get_async_session 的测试依赖，使用内存数据库"""
+    async with TestSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+# 覆盖 FastAPI 的数据库依赖
+app.dependency_overrides[get_async_session] = override_get_async_session
+
+
+@pytest.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    提供测试数据库会话
+
+    每次创建前建表，使用后清表，确保测试隔离
+    """
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with TestSessionLocal() as session:
+        yield session
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture
+async def client() -> AsyncGenerator[AsyncClient, None]:
+    """
+    提供异步 HTTP 测试客户端
+
+    使用 httpx.AsyncClient + ASGITransport 直接调用 ASGI 应用，
+    无需启动真实服务器。自动创建和清理测试数据库表。
+    """
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+# ==================== 模拟 LLM 服务 ====================
+
+@pytest.fixture
+def mock_llm_service(sample_llm_response):
+    """模拟LLM服务"""
+    mock_service = Mock()
+    mock_service.chat_async = AsyncMock(return_value=sample_llm_response)
+    mock_service.get_model_name = Mock(return_value="test-model")
+    mock_service.get_async_client = Mock()
+    return mock_service
+
+
+# ==================== 示例数据 fixtures ====================
 
 @pytest.fixture
 def sample_fund_info() -> Dict[str, Any]:
@@ -118,16 +199,6 @@ def sample_llm_response() -> str:
             ]
         }
     }, ensure_ascii=False)
-
-
-@pytest.fixture
-def mock_llm_service(sample_llm_response):
-    """模拟LLM服务"""
-    mock_service = Mock()
-    mock_service.chat_async = AsyncMock(return_value=sample_llm_response)
-    mock_service.get_model_name = Mock(return_value="test-model")
-    mock_service.get_async_client = Mock()
-    return mock_service
 
 
 @pytest.fixture

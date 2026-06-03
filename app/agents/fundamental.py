@@ -1,56 +1,111 @@
-"""
-基本面分析师智能体
-
-负责基金经理能力评估、持仓结构分析、业绩表现评价
-使用LLM进行推理分析，通过工具调用获取数据
-"""
-from typing import Dict, Any
-
+from typing import Dict, Any, Optional
+from loguru import logger
 from app.agents.base import BaseAgent
-
+from app.core.calculations.style import calculate_style_box
+from app.core.calculations.evaluation import evaluate_manager_stability, evaluate_fund_company
+from app.core.data_provenance import annotate_data_source
 
 class FundamentalAgent(BaseAgent):
-    """
-    基本面分析师智能体
-    
-    分析维度：
-    1. 基金经理能力评估 - 从业年限、历史业绩、管理规模
-    2. 持仓结构分析 - 前十大持仓占比、行业分布集中度
-    3. 业绩表现评价 - 累计收益率、超额收益、信息比率
-    
-    可用工具：
-    - get_fund_info: 获取基金基础信息
-    - get_nav_history: 获取净值历史数据
-    - get_holdings: 获取持仓信息
-    - get_fund_manager: 获取基金经理信息
-    - get_fund_fees: 获取费率信息
-    """
-    
     def __init__(self):
         super().__init__("fundamental", "基本面分析师")
-    
+
+    async def _prepare_style_analysis(
+        self,
+        holdings: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        if not holdings:
+            return {"data_sufficient": False}
+
+        style_result = calculate_style_box(holdings)
+        if style_result.get("data_sufficient", False):
+            style_result = annotate_data_source(style_result, "style_box")
+        return style_result
+
+    async def _prepare_manager_evaluation(
+        self,
+        manager_info: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        if not manager_info:
+            return {"data_sufficient": False}
+
+        result = evaluate_manager_stability(manager_info)
+        if result.get("data_sufficient", False):
+            result = annotate_data_source(result, "manager_evaluation")
+        return result
+
+    async def _prepare_company_evaluation(
+        self,
+        fund_info: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        if not fund_info:
+            return {"data_sufficient": False}
+
+        result = evaluate_fund_company(fund_info)
+        if result.get("data_sufficient", False):
+            result = annotate_data_source(result, "company_evaluation")
+        return result
+
     async def analyze(self, fund_code: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        执行基本面分析
-        
-        通过LLM驱动的分析流程，综合评估基金经理能力、持仓结构和业绩表现
-        
-        Args:
-            fund_code: 基金代码
-            context: 分析上下文，可包含预设的基金信息、持仓数据等
-            
-        Returns:
-            分析结果字典，包含评分、摘要和详细信息
-        """
         await self.add_thinking(f"开始对基金 {fund_code} 进行基本面分析...")
-        
+
+        holdings = context.get("holdings", {})
+        manager_info = context.get("manager_info", {})
+        fund_info = context.get("fund_info", {})
+
+        style_analysis = await self._prepare_style_analysis(holdings)
+        if style_analysis.get("data_sufficient", False):
+            await self.add_thinking(
+                f"风格箱判断: {style_analysis.get('style_box_position', '未知')} "
+                f"({style_analysis.get('market_cap_style', '?')}-{style_analysis.get('value_style', '?')})"
+            )
+
+        manager_eval = await self._prepare_manager_evaluation(manager_info)
+        if manager_eval.get("data_sufficient", False):
+            await self.add_thinking(
+                f"基金经理稳定性: {manager_eval.get('assessment', '未知')}，"
+                f"评分: {manager_eval.get('stability_score', '未知')}"
+            )
+
+        company_eval = await self._prepare_company_evaluation(fund_info)
+        if company_eval.get("data_sufficient", False):
+            await self.add_thinking(
+                f"基金公司实力: {company_eval.get('assessment', '未知')}，"
+                f"评分: {company_eval.get('company_score', '未知')}"
+            )
+
+        enhanced_context = {
+            **context,
+            "style_analysis": style_analysis,
+            "manager_evaluation": manager_eval,
+            "company_evaluation": company_eval,
+        }
+
         result = await self.run_llm_analysis(
             fund_code=fund_code,
-            context=context,
+            context=enhanced_context,
             use_rag=True,
             use_tools=True
         )
-        
+
+        if self.details:
+            if style_analysis.get("data_sufficient"):
+                self.details["style_box"] = {
+                    "market_cap_style": style_analysis.get("market_cap_style"),
+                    "value_style": style_analysis.get("value_style"),
+                    "style_box_position": style_analysis.get("style_box_position"),
+                }
+            if manager_eval.get("data_sufficient"):
+                self.details["manager_stability"] = {
+                    "score": manager_eval.get("stability_score"),
+                    "assessment": manager_eval.get("assessment"),
+                    "issues": manager_eval.get("stability_issues"),
+                }
+            if company_eval.get("data_sufficient"):
+                self.details["company_strength"] = {
+                    "score": company_eval.get("company_score"),
+                    "assessment": company_eval.get("assessment"),
+                }
+
         await self.add_thinking(f"基本面分析完成，评分: {self.score}")
-        
+
         return self.to_dict()

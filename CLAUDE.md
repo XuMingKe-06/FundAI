@@ -2,169 +2,225 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## 项目概述
 
-FundAI 是一个多智能体场外基金分析决策系统。后端使用 Python FastAPI + PostgreSQL + Redis，前端使用 Nuxt 4 + Vue 3 + Element Plus。通过 5 个分析智能体（基本面、技术、风险、成本、情绪）并行分析，再由决策智能体综合生成投资建议，通过 SSE 流式推送分析过程。
+FundAI - 多智能体场外基金分析决策系统。后端基于 FastAPI + LangChain/LangGraph 构建多智能体协作系统，前端基于 Nuxt 4 + Vue 3 + Element Plus。
 
-## 开发命令
+## 常用命令
 
 ### 后端
 ```bash
-# 启动开发服务器（热重载）
+# 启动后端开发服务器
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 运行测试
+# 安装依赖
+pip install -r requirements.txt
+
+# 运行所有测试
 pytest
 
-# 运行单个测试
-pytest tests/test_agents/test_technical.py -v
+# 运行单个测试文件
+pytest tests/test_api.py -v
+
+# 运行单个测试函数
+pytest tests/test_api.py::test_function_name -v
 
 # 代码格式化
-black app/
-isort app/
+black app/ --line-length=88
+isort app/ --profile=black
 
 # 创建虚拟环境
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# 安装依赖
-pip install -r requirements.txt
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate   # Windows
 ```
 
 ### 前端
 ```bash
 cd frontend
-npm run dev    # 启动开发服务器 (localhost:3000)
-npm run build  # 生产构建
-npm run preview # 预览生产构建
-npm run typecheck # TypeScript 类型检查
+
+# 安装依赖
+npm install
+
+# 启动开发服务器 (默认端口3000)
+npm run dev
+
+# 构建生产版本
+npm run build
+
+# 预览构建结果
+npm run preview
+
+# 类型检查
+npm run typecheck
 ```
 
-### 数据库
-- 初始化：执行 `database/init_db.sql`
-- 配置 `.env` 中的 `DATABASE_URL`
+### Docker
+```bash
+# 启动 PostgreSQL + Redis + 应用
+docker-compose up -d
+```
 
-## 架构概览
+## 项目架构
 
-### 后端分层 (`app/`)
+### 后端分层 (app/)
 
 ```
 app/
-├── main.py                 # FastAPI 入口，CORS，异常处理
-├── core/                   # 基础设施
-│   ├── config.py           # pydantic-settings 配置（支持 .env）
-│   ├── database.py         # SQLAlchemy async engine + session
-│   ├── redis_client.py     # Redis 缓存客户端
-│   └── security.py         # JWT 认证
-├── models/                 # SQLAlchemy ORM 模型
-│   ├── fund.py             # Fund, FundNav, FundHolding, FundFee
-│   ├── user.py             # User, UserSettings（手机号注册 + JWT）
-│   └── analysis.py         # AnalysisSession, AgentOutput, DecisionReport
-├── schemas/                # Pydantic 响应模型
-├── api/v1/endpoints/       # FastAPI 路由
-│   ├── auth.py             # 手机验证码登录/注册
-│   ├── funds.py            # 基金搜索、详情、净值、持仓、费率
-│   ├── analysis.py         # 创建会话、SSE 流式分析、获取报告
-│   ├── sessions.py         # 会话列表/详情
-│   └── knowledge.py        # 知识库 CRUD
-├── agents/                 # 多智能体系统（核心）
-│   ├── base.py             # BaseAgent：LLM调用、工具调用、RAG、流式思考
-│   ├── orchestrator.py     # AgentOrchestrator：编排5+1智能体，SSE事件推送
-│   ├── fundamental.py      # 基本面分析师
-│   ├── technical.py        # 技术分析师（内置MA/MACD/RSI计算）
-│   ├── risk.py             # 风险分析师（波动率/最大回撤/夏普/Beta）
-│   ├── cost.py             # 成本分析师（费率矩阵/短线可行性）
-│   ├── sentiment.py        # 情绪分析师
-│   ├── decision.py         # 决策智能体（汇总生成双轨建议）
-│   ├── prompts/            # 各智能体的 system prompt 模板
-│   └── tools/              # ToolRegistry + 具体工具实现
-├── data_sources/           # 数据源层
-│   ├── manager.py          # DataSourceManager：主备切换 + Redis缓存
-│   ├── tushare_adapter.py  # Tushare（主数据源）
-│   └── akshare_adapter.py  # AKShare（备份数据源）
-└── services/               # 业务服务
-    ├── llm_service.py      # LLMService：阿里云百炼 API 封装（同步/流式/工具）
-    ├── rag_service.py      # RAGService：向量检索 + 上下文构建
-    ├── knowledge_service.py # 文档导入/分块/管理
-    ├── vector_store_service.py # ChromaDB 向量存储封装
-    └── embedding_service.py    # Embedding 生成
+├── main.py                    # FastAPI 入口，生命周期管理，全局异常处理
+├── core/                      # 核心基础设施
+│   ├── config.py              # pydantic-settings 配置 (.env → Settings)
+│   ├── database.py            # SQLAlchemy async engine + session
+│   ├── cache.py               # 文件系统缓存
+│   ├── calculations/          # 技术指标计算（MA, MACD, RSI, Bollinger, KDJ 等）
+│   ├── data_quality.py        # 数据质量验证
+│   ├── data_provenance.py     # 数据来源标注
+│   └── settings_manager.py    # 前端可配置的 LLM 设置管理 (data/config.json)
+├── api/v1/endpoints/          # API 路由
+│   ├── funds.py               # 基金搜索/详情/净值/持仓/费率
+│   ├── analysis.py            # 创建分析会话 + SSE 流式分析
+│   ├── sessions.py            # 会话列表/详情
+│   ├── knowledge.py           # RAG 知识库管理
+│   └── settings.py            # LLM 设置 CRUD
+├── models/                    # SQLAlchemy ORM 模型 (fund.py, analysis.py)
+├── schemas/                   # Pydantic 请求/响应模型
+├── agents/                    # 多智能体系统（核心业务逻辑）
+│   ├── base.py                # BaseAgent: LLM调用、工具执行、RAG检索、输出解析
+│   ├── orchestrator.py        # AgentOrchestrator: 智能体编排/调度/辩论/SSE事件
+│   ├── fundamental.py         # 基本面分析师
+│   ├── technical.py           # 技术分析师
+│   ├── risk.py                # 风险分析师
+│   ├── cost.py                # 成本分析师
+│   ├── sentiment.py           # 情绪分析师
+│   ├── decision.py            # 决策分析师（汇总评分并给出投资建议）
+│   ├── prompts/               # 各智能体的系统提示词模板
+│   └── tools/                 # 智能体工具集（fund_data, market_data, technical_indicators 等）
+├── data_sources/              # 数据源适配器
+│   ├── base.py                # 抽象基类
+│   ├── akshare_adapter.py     # AKShare 数据源
+│   ├── tushare_adapter.py     # Tushare Pro 数据源
+│   └── manager.py             # DataSourceManager: 多数据源统一管理
+├── services/                  # 业务服务
+│   ├── llm_service.py         # LLM 调用封装（支持流式 + 工具调用）
+│   ├── rag_service.py         # RAG 检索增强生成服务
+│   ├── embedding_service.py   # Embedding 服务
+│   ├── vector_store_service.py # ChromaDB 向量存储
+│   ├── knowledge_service.py   # 知识库管理服务
+│   ├── report_service.py      # 分析报告生成服务
+│   └── sse_service.py         # SSE 事件推送服务
 ```
 
-### 关键架构设计
-
-**多智能体编排**：`AgentOrchestrator` 协调 5 个分析智能体（并行或串行）+ 1 个决策智能体。执行流程分为两阶段：
-1. 分析阶段：所有分析智能体并行运行，通过 `asyncio.gather` 并发执行
-2. 决策阶段：汇总分析结果后，由决策智能体生成短线（7-30天）和长线（6个月+）双轨建议
-
-**SSE 流式推送**：分析过程通过 Server-Sent Events 实时推送。设计了重连机制，支持页面刷新后恢复流式分析展示。事件类型包括：`agent_status`、`thinking`、`llm_thinking_stream`、`tool_call`、`agent_complete`、`analysis_complete`、`agent_snapshot`（重连用）。
-
-**数据源层**：`DataSourceManager` 管理主数据源（Tushare）和备用数据源（AKShare），自动故障切换。所有数据通过 Redis 缓存（不同数据类型的过期时间不同）。
-
-**LLM 集成**：通过阿里云百炼 API（兼容 OpenAI SDK）调用。支持流式输出、工具调用（function calling）、深度思考（reasoning_content）。`BaseAgent` 实现最多 5 轮工具调用循环。
-
-### 前端 (`frontend/`)
+### 前端分层 (frontend/app/)
 
 ```
-frontend/
-├── nuxt.config.ts          # Nuxt 4 配置（Element Plus、ECharts、Pinia）
-├── app/
-│   ├── pages/              # index.vue（首页），workspace.vue（分析工作台）
-│   ├── components/         # AgentView, ReportView, SidebarLeft/Right, Header 等
-│   ├── stores/             # Pinia：agent, analysis, auth, session
-│   ├── services/           # API 调用封装
-│   └── composables/        # 组合式函数
+frontend/app/
+├── app.vue                    # 根组件
+├── pages/                     # 页面路由
+│   ├── index.vue              # 首页/基金搜索
+│   ├── workspace.vue          # 工作台（核心分析页面）
+│   └── settings.vue           # 设置页面
+├── components/                # Vue 组件
+│   ├── workspace/             # 工作台子组件
+│   │   ├── Header.vue         # 顶部导航
+│   │   ├── SidebarLeft.vue    # 左侧边栏（会话列表）
+│   │   ├── SidebarRight.vue   # 右侧边栏（分析概览）
+│   │   ├── TabBar.vue         # 标签页切换
+│   │   ├── AgentSwimLane.vue  # 智能体泳道图
+│   │   ├── AgentView.vue      # 单个智能体视图
+│   │   ├── ReportView.vue     # 分析报告
+│   │   ├── ReportExport.vue   # 报告导出
+│   │   ├── QuickOverview.vue  # 快速概览
+│   │   ├── ExecutiveSummary.vue # 执行摘要
+│   │   ├── FundCompareView.vue # 基金对比
+│   │   ├── HoldingsTable.vue  # 持仓表格
+│   │   ├── NavHistoryTable.vue # 净值历史表格
+│   │   ├── ToolCallVisualization.vue # 工具调用可视化
+│   │   ├── DataProvenance.vue # 数据来源标注
+│   │   └── SettingsDialog.vue # 设置弹窗
+│   ├── common/                # 通用组件
+│   │   ├── MetricCard.vue     # 指标卡片
+│   │   ├── DataTable.vue      # 数据表格
+│   │   ├── DataTag.vue        # 数据标签
+│   │   ├── RiskLevel.vue      # 风险等级
+│   │   ├── StatusBadge.vue    # 状态徽章
+│   │   └── TrendArrow.vue     # 趋势箭头
+│   ├── RiskSelect.vue         # 风险偏好选择器
+│   ├── ThemeToggle.vue        # 主题切换
+│   └── ThinkingIndicator.vue  # 思考指示器
+├── stores/                    # Pinia 状态管理
+│   ├── analysis.ts            # 分析报告状态（SSE订阅/暂停/恢复）
+│   ├── session.ts             # 会话列表状态
+│   ├── settings.ts            # 设置状态
+│   └── agent.ts               # 智能体状态
+├── composables/               # Vue 组合式函数
+│   ├── useSSE.ts              # SSE 连接封装
+│   ├── useWorkspaceSSE.ts     # 工作台 SSE 处理
+│   ├── useWorkspaceAnalysis.ts # 工作台分析逻辑
+│   ├── useWorkspaceCharts.ts  # ECharts 图表集成
+│   ├── useEcharts.ts          # ECharts 通用封装
+│   ├── useAreaChart.ts        # 面积图
+│   ├── useGaugeChart.ts       # 仪表盘图
+│   ├── useHeatmapChart.ts     # 热力图
+│   ├── usePercentileChart.ts  # 百分位图
+│   ├── useSunburstChart.ts    # 旭日图
+│   ├── useTheme.ts            # 主题管理
+│   └── useScrollSnap.ts       # 滚动对齐
+├── services/                  # API 服务层
+│   ├── api.ts                 # Axios 封装 + 拦截器
+│   ├── analysis.service.ts    # 分析 API + 数据映射
+│   ├── session.service.ts     # 会话 API
+│   ├── settings.ts            # 设置 API
+│   └── fund.ts                # 基金数据 API
+└── utils/
+    ├── format.ts              # 格式化工具（数字/日期/百分比）
+    ├── markdown.ts            # Markdown 渲染
+    └── toolNameMap.ts         # 工具名称中文化映射
 ```
 
-### 数据流
+## 核心架构要点
 
-1. 用户在前端搜索基金 → 调 `GET /api/v1/funds/search`
-2. 发起分析 → `POST /api/v1/analysis/sessions` 创建会话
-3. 前端连接 SSE → `GET /api/v1/analysis/sessions/{id}/stream`
-4. 后端 `AgentOrchestrator` 执行两阶段分析，通过 SSE 实时推送事件
-5. 完成后，agent outputs 和 decision report 持久化到 PostgreSQL
-6. 前端通过 `GET /api/v1/analysis/sessions/{id}/report` 获取完整报告
+### 多智能体系统
+- **5 个分析智能体**并行/串行执行：基本面、技术面、风险、成本、情绪
+- **1 个决策智能体**汇总所有分析结果，给出短线/长线投资建议
+- 每个智能体由 LLM 驱动，具备工具调用和 RAG 知识增强能力
+- 智能体通过 `EventCallback` 推送 SSE 事件到前端（`agent_status`, `thinking`, `tool_call`, `agent_complete` 等）
 
-### 数据库表
+### 分析流程
+1. 构建上下文（获取基金数据 → 数据质量验证 → 数据来源标注）
+2. 并行执行 5 个分析智能体
+3. **辩论机制**：检测评分分歧（阈值 1.5），分歧双方互相审视并调分
+4. 决策智能体汇总评分并生成投资建议
+5. 历史结果存入 `AgentMemory`，下次分析时作为参考
 
-- **funds**: 基金基础信息（代码、名称、类型、基金经理、费率等）
-- **fund_nav**: 净值历史（日期、单位净值、累计净值、日增长率）
-- **fund_holdings**: 持仓明细（股票代码、名称、占比等）
-- **fund_fees**: 费率阶梯（类型、持有天数范围、费率）
-- **users**: 用户（手机号注册）
-- **analysis_sessions**: 分析会话（关联用户、基金、状态、分析模式）
-- **agent_outputs**: 智能体输出快照（用于重连恢复）
-- **decision_reports**: 决策报告（长短线建议、成本矩阵、风险提示、趋势图）
+### SSE 流式推送
+- 使用 `EventCallback` + `asyncio.Queue` 实现实时事件推送
+- 事件类型包括：智能体状态变更、思考过程、工具调用、深度推理、辩论轮次、渐进式更新
+- 前端通过 `EventSource` 订阅，支持暂停/恢复
 
-### 测试
+### API 代理
+- 前端 Nuxt 通过 `server/routes/api/v1/[...].ts` 将所有 `/api/v1/*` 请求代理到后端
+- 前端使用 `process.env.NUXT_API_URL` 或默认 `http://localhost:8000`
 
-```bash
-# 组织结构
-tests/
-├── conftest.py
-├── test_integration.py
-├── test_orchestrator.py
-├── test_agents/        # 各智能体单元测试
-├── test_prompts/       # 提示词测试
-└── test_tools/         # 工具测试
-```
+### LLM 配置
+- LLM 设置通过前端设置页面管理，存储在 `data/config.json`
+- 支持任意 OpenAI 兼容 API（API URL、API Key、模型名称、temperature 等）
+- 配置热生效，无需重启服务
 
-## 重要规范
+### 数据源
+- 支持 AKShare 和 Tushare Pro 两种数据源
+- `DataSourceManager` 统一管理，支持自动切换和缓存
 
-### Git 提交格式
+### 测试策略
+- `pytest` + `pytest-asyncio`（`asyncio_mode = auto`）
+- 内存 SQLite 测试数据库，每测试用例自动建表/清表
+- `httpx.AsyncClient` + `ASGITransport` 直接调用 ASGI 应用（不启动真实服务器）
+- 关键 mock fixtures：`mock_llm_service`, `mock_datasource_manager`, `mock_rag_service`
+- 测试目录按模块组织：`tests/test_agents/`, `tests/test_api/`, `tests/test_core/`, `tests/test_data_sources/`, `tests/test_services/`, `tests/test_tools/`, `tests/test_prompts/`
 
-遵循 Conventional Commits（中文描述）：
-```
-<类型>(可选范围): <简洁标题>
-
-<详细描述>
-
-<可选脚注>
-```
-类型：feat / fix / docs / style / refactor / perf / test / chore
-
-### 环境变量
-
-参考 `.env.example`，必须配置：
-- `DATABASE_URL`（PostgreSQL 连接串）
-- `REDIS_URL`
-- `DASHSCOPE_API_KEY` 或 `ALIYUN_LLM_API_KEY`（阿里云百炼）
-- `JWT_SECRET_KEY`（生产环境需修改）
+### 关键设计决策
+- **SQLite 作为开发数据库**，生产环境使用 PostgreSQL（通过 `DATABASE_URL` 切换）
+- **SQLAlchemy async** 全异步数据库操作
+- **文件系统缓存**替代 Redis（开发环境零外部依赖），生产环境可切换 Redis
+- **前端通过设置页面管理 LLM 配置**，而非通过 `.env` 文件
+- **Nitro 代理**方案而非传统跨域请求，避免 CORS 复杂配置
+- **数据来源标注**机制追踪每条数据的来源和获取时间

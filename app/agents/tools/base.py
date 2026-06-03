@@ -8,11 +8,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Type, Callable
 from datetime import date, datetime
 from enum import Enum
-import logging
+from loguru import logger
 import json
-
-logger = logging.getLogger(__name__)
-
 
 class ToolCategory(Enum):
     """工具类别枚举"""
@@ -20,7 +17,6 @@ class ToolCategory(Enum):
     TECHNICAL_INDICATOR = "technical_indicator"
     RISK_METRIC = "risk_metric"
     MARKET_DATA = "market_data"
-
 
 @dataclass
 class ToolResult:
@@ -72,6 +68,31 @@ class ToolResult:
             metadata=metadata or {}
         )
 
+    @staticmethod
+    def validate_numeric_range(
+        data: Dict[str, Any],
+        field_ranges: Dict[str, tuple]
+    ) -> List[str]:
+        """验证数值字段的范围
+
+        Args:
+            data: 待验证的数据字典
+            field_ranges: 字段名到 (min, max) 范围的映射
+
+        Returns:
+            警告消息列表
+        """
+        warnings = []
+        for field, (min_val, max_val) in field_ranges.items():
+            value = data.get(field)
+            if value is not None:
+                try:
+                    num = float(value)
+                    if num < min_val or num > max_val:
+                        warnings.append(f"字段 {field} 值 {num} 超出合理范围 [{min_val}, {max_val}]")
+                except (ValueError, TypeError):
+                    warnings.append(f"字段 {field} 值 {value} 无法转换为数值")
+        return warnings
 
 class BaseTool(ABC):
     """
@@ -130,6 +151,41 @@ class BaseTool(ABC):
             if param_name not in params or params[param_name] is None:
                 return f"缺少必需参数: {param_name}"
         return None
+
+    def _validate_result(self, data: Dict[str, Any], data_type: str = "general") -> ToolResult:
+        """验证工具结果数据的合理性
+
+        Args:
+            data: 工具返回的数据
+            data_type: 数据类型标识
+
+        Returns:
+            验证后的 ToolResult（可能包含警告信息）
+        """
+        warnings = []
+
+        if data_type == "fund_info":
+            warnings = ToolResult.validate_numeric_range(data, {
+                "purchase_fee": (0, 0.1),
+                "management_fee": (0, 0.05),
+                "custody_fee": (0, 0.02),
+            })
+        elif data_type == "nav_history":
+            pass
+        elif data_type == "risk_metrics":
+            warnings = ToolResult.validate_numeric_range(data, {
+                "annual_volatility": (0, 200),
+                "max_drawdown": (0, 100),
+                "sharpe_ratio": (-10, 10),
+                "beta": (-5, 5),
+            })
+
+        if warnings:
+            if "_quality_warnings" not in data:
+                data["_quality_warnings"] = []
+            data["_quality_warnings"].extend(warnings)
+
+        return data
     
     @abstractmethod
     async def execute(self, **kwargs) -> ToolResult:
@@ -172,7 +228,6 @@ class BaseTool(ABC):
             "description": self.description,
             "parameters": self.parameters_schema
         }
-
 
 class ToolRegistry:
     """
@@ -317,7 +372,6 @@ class ToolRegistry:
             self._tools_by_category[category] = []
         logger.info("已清空所有工具注册")
 
-
 def register_tool(tool_class: Type[BaseTool]) -> Type[BaseTool]:
     """
     工具注册装饰器
@@ -331,7 +385,6 @@ def register_tool(tool_class: Type[BaseTool]) -> Type[BaseTool]:
     tool_instance = tool_class()
     registry.register(tool_instance)
     return tool_class
-
 
 def get_tool_registry() -> ToolRegistry:
     """获取工具注册表单例"""

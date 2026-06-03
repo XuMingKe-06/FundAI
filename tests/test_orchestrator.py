@@ -16,13 +16,14 @@ class TestEventType:
     """EventType测试类"""
     
     def test_event_type_enum(self):
-        """测试事件类型枚举"""
         assert EventType.AGENT_STATUS.value == "agent_status"
         assert EventType.THINKING.value == "thinking"
         assert EventType.TOOL_CALL.value == "tool_call"
         assert EventType.AGENT_COMPLETE.value == "agent_complete"
         assert EventType.ANALYSIS_COMPLETE.value == "analysis_complete"
         assert EventType.ERROR.value == "error"
+        assert EventType.DEBATE_ROUND.value == "debate_round"
+        assert EventType.PROGRESSIVE_UPDATE.value == "progressive_update"
 
 
 class TestSSEEvent:
@@ -101,14 +102,13 @@ class TestAgentOrchestrator:
     """AgentOrchestrator测试类"""
     
     def test_orchestrator_init(self):
-        """测试编排器初始化"""
         orchestrator = AgentOrchestrator()
-        
-        assert orchestrator.fundamental_agent is not None
-        assert orchestrator.technical_agent is not None
-        assert orchestrator.risk_agent is not None
-        assert orchestrator.cost_agent is not None
-        assert orchestrator.sentiment_agent is not None
+
+        assert orchestrator._get_agent_by_type("fundamental") is not None
+        assert orchestrator._get_agent_by_type("technical") is not None
+        assert orchestrator._get_agent_by_type("risk") is not None
+        assert orchestrator._get_agent_by_type("cost") is not None
+        assert orchestrator._get_agent_by_type("sentiment") is not None
         assert orchestrator.decision_agent is not None
     
     @pytest.mark.asyncio
@@ -138,7 +138,7 @@ class TestAgentOrchestrator:
         with patch('app.agents.base.get_llm_service', return_value=mock_llm_service), \
              patch('app.agents.base.get_rag_service', return_value=mock_rag_service):
             result = await orchestrator._run_agent(
-                orchestrator.fundamental_agent,
+                orchestrator._get_agent_by_type("fundamental"),
                 "000001",
                 sample_analysis_context,
                 callback

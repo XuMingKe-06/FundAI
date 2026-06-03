@@ -3,13 +3,14 @@
 使用 ChromaDB 实现向量数据库的存储和检索功能
 支持基金知识库、分析案例库、投资策略库的向量检索
 """
+from loguru import logger
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.settings_manager import get_settings_manager
 from app.services.embedding_service import get_embedding_service
-
 
 class VectorStoreService:
     """
@@ -41,7 +42,9 @@ class VectorStoreService:
         数据库连接延迟初始化，不在构造函数中建立连接
         """
         self._persist_dir = settings.CHROMA_PERSIST_DIR
-        self._top_k = settings.RAG_TOP_K
+        # 优先从 config.json 读取（前端可编辑），回退到 .env 配置
+        sm = get_settings_manager()
+        self._top_k = sm.get("rag.top_k", settings.RAG_TOP_K)
         self._collections: Dict[str, object] = {}
     
     def _initialize_client(self):
@@ -215,7 +218,7 @@ class VectorStoreService:
             collection.delete(ids=ids)
             return True
         except Exception as e:
-            print(f"删除文档失败: {e}")
+            logger.error(f"删除文档失败: {e}")
             return False
     
     def delete_collection(self, collection_name: str) -> bool:
@@ -236,7 +239,7 @@ class VectorStoreService:
                 del self._collections[collection_name]
             return True
         except Exception as e:
-            print(f"删除集合失败: {e}")
+            logger.error(f"删除集合失败: {e}")
             return False
     
     def list_collections(self) -> List[str]:
@@ -267,7 +270,7 @@ class VectorStoreService:
             collection = self._get_or_create_collection(collection_name)
             return collection.count()
         except Exception as e:
-            print(f"获取集合文档数量失败: {e}")
+            logger.error(f"获取集合文档数量失败: {e}")
             return 0
     
     def update_document(
@@ -305,7 +308,7 @@ class VectorStoreService:
             collection.update(**update_params)
             return True
         except Exception as e:
-            print(f"更新文档失败: {e}")
+            logger.error(f"更新文档失败: {e}")
             return False
     
     def get_document_by_id(
@@ -337,7 +340,7 @@ class VectorStoreService:
                 }
             return None
         except Exception as e:
-            print(f"获取文档失败: {e}")
+            logger.error(f"获取文档失败: {e}")
             return None
     
     def get_by_metadata(
@@ -372,7 +375,7 @@ class VectorStoreService:
                 "ids": result.get("ids", [])
             }
         except Exception as e:
-            print(f"根据元数据获取文档失败: {e}")
+            logger.error(f"根据元数据获取文档失败: {e}")
             return {
                 "documents": [],
                 "metadatas": [],
@@ -394,9 +397,8 @@ class VectorStoreService:
             self._collections.clear()
             return True
         except Exception as e:
-            print(f"重置数据库失败: {e}")
+            logger.error(f"重置数据库失败: {e}")
             return False
-
 
 @lru_cache()
 def get_vector_store_service() -> VectorStoreService:

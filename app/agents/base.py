@@ -5,9 +5,9 @@
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Callable, Awaitable
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import json
-import logging
+from loguru import logger
 import asyncio
 import uuid
 import random
@@ -18,9 +18,6 @@ from app.agents.tools.base import ToolRegistry, ToolResult
 from app.agents.prompts import get_prompt_template
 from app.agents.tools import get_tool_chinese_name
 from openai import PermissionDeniedError, RateLimitError, APIError
-
-logger = logging.getLogger(__name__)
-
 
 class BaseAgent(ABC):
     """
@@ -53,6 +50,9 @@ class BaseAgent(ABC):
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
         self.duration_ms: Optional[int] = None
+        self.confidence: Optional[int] = None
+        self.data_sufficiency: str = "unknown"
+        self.data_sufficient: bool = True
         
         self._rag_context: List[str] = []
         self._llm_service = None
@@ -211,7 +211,7 @@ class BaseAgent(ABC):
             "args": args,
             "result": result_dict,
             "time": datetime.now().strftime("%H:%M:%S"),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
         
         if self._tool_call_callback:
@@ -460,7 +460,15 @@ class BaseAgent(ABC):
 
                                 await self.add_thinking(f"正在{tool_chinese_name}...")
 
-                                result = await self.execute_tool(tool_name, tool_args)
+                                try:
+                                    result = await asyncio.wait_for(
+                                        self.execute_tool(tool_name, tool_args),
+                                        timeout=30.0
+                                    )
+                                except asyncio.TimeoutError:
+                                    tool_result = ToolResult.fail(f"工具 {tool_name} 执行超时（30秒）")
+                                    await self.add_thinking(f"工具 {tool_name} 执行超时，已降级处理")
+                                    result = tool_result
 
                                 # 构建工具响应消息
                                 tool_content = json.dumps(result.to_dict(), ensure_ascii=False, default=str)
@@ -681,6 +689,22 @@ class BaseAgent(ABC):
                 json_str = json_match.group(1).strip()
                 result = json.loads(json_str)
                 self.score = result.get("score")
+                if self.score is not None:
+                    try:
+                        self.score = float(self.score)
+                        self.score = max(0.0, min(10.0, self.score))
+                    except (ValueError, TypeError):
+                        self.score = None
+                confidence_raw = result.get("confidence")
+                if confidence_raw is not None:
+                    try:
+                        self.confidence = int(confidence_raw)
+                        self.confidence = max(1, min(5, self.confidence))
+                    except (ValueError, TypeError):
+                        self.confidence = None
+                ds_raw = result.get("data_sufficiency")
+                if ds_raw in ("complete", "partial", "insufficient"):
+                    self.data_sufficiency = ds_raw
                 self.summary = result.get("summary")
                 self.details = result.get("details", {})
                 return result
@@ -704,6 +728,22 @@ class BaseAgent(ABC):
                     json_str = llm_response[json_start:json_end]
                     result = json.loads(json_str)
                     self.score = result.get("score")
+                    if self.score is not None:
+                        try:
+                            self.score = float(self.score)
+                            self.score = max(0.0, min(10.0, self.score))
+                        except (ValueError, TypeError):
+                            self.score = None
+                    confidence_raw = result.get("confidence")
+                    if confidence_raw is not None:
+                        try:
+                            self.confidence = int(confidence_raw)
+                            self.confidence = max(1, min(5, self.confidence))
+                        except (ValueError, TypeError):
+                            self.confidence = None
+                    ds_raw = result.get("data_sufficiency")
+                    if ds_raw in ("complete", "partial", "insufficient"):
+                        self.data_sufficiency = ds_raw
                     self.summary = result.get("summary")
                     self.details = result.get("details", {})
                     return result
@@ -799,6 +839,20 @@ class BaseAgent(ABC):
             f"均为有效的历史数据。"
         )
 
+        system_prompt += (
+            "\n\n## 输出格式要求\n"
+            "你必须输出合法的 JSON 格式，包含以下字段：\n"
+            "- score: 评分（0-10的数字）\n"
+            "- summary: 分析摘要（字符串）\n"
+            "- details: 详细分析结果（对象）\n"
+            "- confidence: 置信度（1-5的整数，1=低置信度，5=高置信度）\n"
+            "- data_sufficiency: 数据充足度（'complete'/'partial'/'insufficient'）\n\n"
+            "重要规则：\n"
+            "1. 当数据不足时，必须在 data_sufficiency 中标注 'insufficient' 或 'partial'，并在 summary 中明确说明\n"
+            "2. 不得在数据不足时编造分析结论，应明确声明无法分析\n"
+            "3. confidence 应反映你对分析结果的确信程度，数据不足时 confidence 不得超过2"
+        )
+
         llm_response = await self.call_llm(
             prompt=prompt,
             system_prompt=system_prompt,
@@ -820,19 +874,19 @@ class BaseAgent(ABC):
         Returns:
             分析结果字典
         """
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.status = "running"
 
         try:
             result = await self.analyze(fund_code, context)
             self.status = "completed"
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             return result
         except Exception as e:
             self.status = "failed"
             self.error_message = str(e)
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             raise
     
@@ -856,5 +910,8 @@ class BaseAgent(ABC):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "duration_ms": self.duration_ms,
-            "rag_context": self._rag_context
+            "rag_context": self._rag_context,
+            "confidence": self.confidence,
+            "data_sufficiency": self.data_sufficiency,
+            "data_sufficient": self.data_sufficient
         }

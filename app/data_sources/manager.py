@@ -2,7 +2,7 @@
 数据源管理器 - 管理多个数据源实例，实现自动切换和缓存机制
 使用基于 diskcache 的文件缓存替代 Redis 缓存
 """
-import logging
+from loguru import logger
 import json
 from datetime import date, datetime
 from typing import Dict, Any, List, Optional
@@ -13,8 +13,6 @@ from .tushare_adapter import TushareAdapter
 from .akshare_adapter import AkshareAdapter
 from app.core.cache import cache_client, CacheKeys, CacheExpire
 
-
-logger = logging.getLogger(__name__)
 
 
 class DataSourceType(Enum):
@@ -152,6 +150,9 @@ class DataSourceManager:
         """
         await self._ensure_initialized()
 
+        # 记录方法调用信息
+        logger.debug("执行数据源方法: {}, 缓存键: {}", method_name, cache_key or "无")
+
         # 尝试从缓存获取
         if cache_key:
             cached_result = await self._get_cache(cache_key)
@@ -164,6 +165,9 @@ class DataSourceManager:
             try:
                 method = getattr(source, method_name)
                 result = await method(*args, **kwargs)
+
+                # 主数据源执行成功
+                logger.debug("数据源 {} 执行 {} 成功", source.name, method_name)
 
                 # 如果结果有效，缓存并返回
                 if result is not None and cache_key and cache_expire:
@@ -519,6 +523,8 @@ class DataSourceManager:
                     logger.error(f"备用数据源健康检查异常: {e}")
 
         logger.info(f"数据源健康检查完成: {health_status}")
+        # 健康检查详情日志
+        logger.debug("数据源健康检查详情: {}", health_status)
         return health_status
 
     async def switch_to_backup(self) -> bool:
@@ -588,6 +594,8 @@ class DataSourceManager:
             keys_to_delete.append(CacheKeys.FUND_FEES.format(fund_code=fund_code))
 
         if keys_to_delete:
+            # 记录缓存清除详情
+            logger.debug("清除缓存: fund_code={}, cache_type={}, keys_count={}", fund_code, cache_type, len(keys_to_delete))
             try:
                 # CacheClient 不支持批量删除，逐个删除缓存键
                 for key in keys_to_delete:

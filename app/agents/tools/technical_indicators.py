@@ -4,43 +4,15 @@
 提供移动平均线、MACD、RSI、估值分位数等技术指标计算功能
 """
 from typing import Dict, Any, List, Optional
-import logging
-
+from loguru import logger
 from app.agents.tools.base import (
     BaseTool, 
     ToolResult, 
     ToolCategory,
     register_tool
 )
-
-logger = logging.getLogger(__name__)
-
-
-def _calculate_ema(data: List[float], period: int) -> List[float]:
-    """
-    计算指数移动平均
-    
-    Args:
-        data: 数据列表
-        period: 周期
-        
-    Returns:
-        EMA 值列表
-    """
-    if len(data) < period:
-        return []
-    
-    ema = []
-    multiplier = 2 / (period + 1)
-    sma = sum(data[:period]) / period
-    ema.append(sma)
-    
-    for i in range(period, len(data)):
-        ema_value = (data[i] - ema[-1]) * multiplier + ema[-1]
-        ema.append(ema_value)
-    
-    return ema
-
+from app.core.calculations import calculate_ma, calculate_ma_slope, calculate_macd, calculate_rsi, calculate_percentile
+from app.core.calculations.ema import calculate_ema
 
 @register_tool
 class CalculateMATool(BaseTool):
@@ -99,8 +71,12 @@ class CalculateMATool(BaseTool):
                     metadata={"data_points": len(values) if values else 0, "period": period}
                 )
             
-            recent_values = values[-period:]
-            ma_value = sum(recent_values) / period
+            ma_value = calculate_ma(values, period)
+            if ma_value is None:
+                return ToolResult.fail(
+                    f"数据不足，需要至少 {period} 个数据点",
+                    metadata={"data_points": len(values) if values else 0, "period": period}
+                )
             
             current_value = values[-1]
             prev_value = values[-2] if len(values) > 1 else values[-1]
@@ -115,8 +91,10 @@ class CalculateMATool(BaseTool):
                 position = "附近"
                 trend = "中性"
             
-            ma_slope = (ma_value - sum(values[-(period+1):-1]) / period) if len(values) > period else 0
-            if ma_slope > 0:
+            ma_slope = calculate_ma_slope(values, period)
+            if ma_slope is None:
+                ma_trend = "数据不足"
+            elif ma_slope > 0:
                 ma_trend = "上升"
             elif ma_slope < 0:
                 ma_trend = "下降"
@@ -141,7 +119,6 @@ class CalculateMATool(BaseTool):
         except Exception as e:
             logger.error(f"计算移动平均线失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算移动平均线异常: {str(e)}")
-
 
 @register_tool
 class CalculateMACDTool(BaseTool):
@@ -218,8 +195,8 @@ class CalculateMACDTool(BaseTool):
                     metadata={"data_points": len(values) if values else 0}
                 )
             
-            ema_fast = _calculate_ema(values, fast_period)
-            ema_slow = _calculate_ema(values, slow_period)
+            ema_fast = calculate_ema(values, fast_period)
+            ema_slow = calculate_ema(values, slow_period)
             
             if len(ema_fast) < len(ema_slow):
                 return ToolResult.fail(
@@ -239,7 +216,7 @@ class CalculateMACDTool(BaseTool):
                     metadata={"macd_line_len": len(macd_line)}
                 )
             
-            signal_line = _calculate_ema(macd_line, signal_period)
+            signal_line = calculate_ema(macd_line, signal_period)
             
             if not signal_line:
                 return ToolResult.fail("信号线计算失败")
@@ -285,7 +262,6 @@ class CalculateMACDTool(BaseTool):
         except Exception as e:
             logger.error(f"计算MACD指标失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算MACD指标异常: {str(e)}")
-
 
 @register_tool
 class CalculateRSITool(BaseTool):
@@ -344,23 +320,12 @@ class CalculateRSITool(BaseTool):
                     metadata={"data_points": len(values) if values else 0, "period": period}
                 )
             
-            changes = []
-            for i in range(1, len(values)):
-                changes.append(values[i] - values[i-1])
-            
-            recent_changes = changes[-(period):]
-            
-            gains = [c for c in recent_changes if c > 0]
-            losses = [-c for c in recent_changes if c < 0]
-            
-            avg_gain = sum(gains) / period if gains else 0
-            avg_loss = sum(losses) / period if losses else 0
-            
-            if avg_loss == 0:
-                rsi_value = 100.0
-            else:
-                rs = avg_gain / avg_loss
-                rsi_value = 100 - (100 / (1 + rs))
+            rsi_value = calculate_rsi(values, period)
+            if rsi_value is None:
+                return ToolResult.fail(
+                    f"数据不足，需要至少 {period + 1} 个数据点",
+                    metadata={"data_points": len(values) if values else 0, "period": period}
+                )
             
             if rsi_value < 30:
                 status = "超卖"
@@ -396,7 +361,6 @@ class CalculateRSITool(BaseTool):
         except Exception as e:
             logger.error(f"计算RSI指标失败: {e}", exc_info=True)
             return ToolResult.fail(f"计算RSI指标异常: {str(e)}")
-
 
 @register_tool
 class CalculatePercentileTool(BaseTool):
@@ -455,8 +419,7 @@ class CalculatePercentileTool(BaseTool):
             if not historical_values:
                 return ToolResult.fail("历史数据为空")
             
-            count_below = sum(1 for v in historical_values if v < current_value)
-            percentile = (count_below / len(historical_values)) * 100
+            percentile = calculate_percentile(current_value, historical_values)
             
             if percentile < 20:
                 valuation_level = "低估"

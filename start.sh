@@ -21,10 +21,18 @@ fi
 if [ ! -d ".venv" ]; then
     echo "[信息] 首次运行，正在安装后端依赖..."
     python3 -m venv .venv
-    source .venv/bin/activate
+    if [ -f ".venv/Scripts/activate" ]; then
+        source .venv/Scripts/activate
+    else
+        source .venv/bin/activate
+    fi
     pip install -r requirements.txt
 else
-    source .venv/bin/activate
+    if [ -f ".venv/Scripts/activate" ]; then
+        source .venv/Scripts/activate
+    else
+        source .venv/bin/activate
+    fi
 fi
 
 if [ ! -d "frontend/node_modules" ]; then
