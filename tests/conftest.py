@@ -23,7 +23,7 @@ from app.main import app
 
 # ==================== 测试数据库 ====================
 
-# 使用 SQLite 内存数据库进行测试
+# 测试环境使用 SQLite 内存数据库，无需外部依赖
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
 
 test_engine = create_async_engine(

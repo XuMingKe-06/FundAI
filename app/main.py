@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     # 关闭时
     logger.info("关闭 {}", settings.APP_NAME)
     await cache_client.close()
-    logger.info("缓存客户端已关闭")
+    logger.info("Redis 缓存连接已关闭")
 
 
 # 创建FastAPI应用

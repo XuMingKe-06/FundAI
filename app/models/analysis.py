@@ -1,6 +1,5 @@
 """
 分析会话模型
-适配 SQLite：使用 String(36) 替代 UUID，JSON 替代 JSONB
 """
 import uuid
 from datetime import datetime, timezone

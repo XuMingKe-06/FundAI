@@ -41,7 +41,7 @@ if [ ! -d "frontend/node_modules" ]; then
 fi
 
 # 创建数据目录
-mkdir -p data/cache data/chroma
+mkdir -p data/chroma
 
 echo ""
 echo "[信息] 正在启动后端服务..."

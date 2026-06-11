@@ -18,15 +18,16 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # ==================== 数据目录配置 ====================
-    # 数据根目录，SQLite 数据库、缓存、配置文件均在此目录下
+    # 数据根目录，配置文件等在此目录下
     DATA_DIR: str = "./data"
-    # 缓存目录，用于存放数据源缓存等临时文件
-    CACHE_DIR: str = "./data/cache"
     # 应用配置文件路径（JSON 格式）
     CONFIG_FILE: str = "./data/config.json"
 
-    # 数据库配置（SQLite + aiosqlite 异步驱动）
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/fundai.db"
+    # 数据库配置（PostgreSQL + asyncpg 异步驱动）
+    DATABASE_URL: str = "postgresql+asyncpg://fundai:fundai@localhost:5432/fundai"
+
+    # Redis 缓存配置
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     # ==================== 数据源配置 ====================
     TUSHARE_TOKEN: str = ""

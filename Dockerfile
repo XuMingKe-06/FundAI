@@ -16,8 +16,8 @@ RUN cd frontend && npm install
 # 复制应用代码
 COPY . .
 
-# 创建数据目录
-RUN mkdir -p data/cache data/chroma
+# 创建数据目录（Chroma 向量数据库持久化目录）
+RUN mkdir -p data/chroma
 
 # 暴露端口
 EXPOSE 8000 3000

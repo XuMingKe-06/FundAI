@@ -40,7 +40,6 @@ if not exist "frontend\node_modules" (
 
 REM 创建数据目录
 if not exist "data" mkdir data
-if not exist "data\cache" mkdir data\cache
 if not exist "data\chroma" mkdir data\chroma
 
 echo.

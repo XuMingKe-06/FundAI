@@ -1,5 +1,5 @@
 """
-基金模型 - 适配 SQLite
+基金模型
 """
 import uuid
 from datetime import datetime, date, timezone
@@ -13,7 +13,7 @@ class Fund(Base):
     """基金基础信息表"""
     __tablename__ = "funds"
 
-    # 主键，使用 String(36) 存储 UUID 字符串，兼容 SQLite
+    # 主键，使用 String(36) 存储 UUID 字符串
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # 基金代码（6位）
     fund_code = Column(String(6), unique=True, nullable=False, index=True)
@@ -60,7 +60,7 @@ class FundNav(Base):
     """基金净值表"""
     __tablename__ = "fund_nav"
 
-    # 主键，使用 String(36) 存储 UUID 字符串，兼容 SQLite
+    # 主键，使用 String(36) 存储 UUID 字符串
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # 基金代码，外键关联 funds.fund_code
     fund_code = Column(String(6), ForeignKey("funds.fund_code", ondelete="CASCADE"), nullable=False, index=True)
@@ -91,7 +91,7 @@ class FundHolding(Base):
     """基金持仓表"""
     __tablename__ = "fund_holdings"
 
-    # 主键，使用 String(36) 存储 UUID 字符串，兼容 SQLite
+    # 主键，使用 String(36) 存储 UUID 字符串
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # 基金代码，外键关联 funds.fund_code
     fund_code = Column(String(6), ForeignKey("funds.fund_code", ondelete="CASCADE"), nullable=False, index=True)
@@ -123,7 +123,7 @@ class FundFee(Base):
     """基金费率表"""
     __tablename__ = "fund_fees"
 
-    # 主键，使用 String(36) 存储 UUID 字符串，兼容 SQLite
+    # 主键，使用 String(36) 存储 UUID 字符串
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # 基金代码，外键关联 funds.fund_code
     fund_code = Column(String(6), ForeignKey("funds.fund_code", ondelete="CASCADE"), nullable=False, index=True)

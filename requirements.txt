@@ -5,7 +5,7 @@ python-multipart>=0.0.12
 
 # Database
 sqlalchemy[asyncio]>=2.0.36
-aiosqlite>=0.20.0
+asyncpg>=0.30.0
 alembic>=1.14.0
 
 # Data validation
@@ -41,7 +41,8 @@ sentence-transformers>=2.2.2
 tushare>=1.4.3
 akshare>=1.18.55
 
-# Cache (基于文件系统，无外部依赖)
+# Cache
+redis>=5.0.0
 
 # Utilities
 python-dotenv>=1.0.1

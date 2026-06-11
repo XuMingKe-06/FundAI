@@ -1,6 +1,6 @@
 """
 数据源管理器 - 管理多个数据源实例，实现自动切换和缓存机制
-使用基于 diskcache 的文件缓存替代 Redis 缓存
+使用 Redis 缓存
 """
 from loguru import logger
 import json
@@ -37,7 +37,7 @@ class DataSourceManager:
         self._backup_source: Optional[BaseDataSource] = None
         # 当前使用的数据源
         self._current_source_type: DataSourceType = DataSourceType.PRIMARY
-        # 文件缓存客户端（基于 diskcache）
+        # Redis 缓存客户端
         self._cache = None
 
         # 延迟初始化数据源实例
@@ -59,7 +59,7 @@ class DataSourceManager:
             self._backup_source = AkshareAdapter()
             logger.info(f"备用数据源（Akshare）初始化完成，可用状态: {self._backup_source.is_available}")
 
-            # 获取文件缓存客户端（diskcache 单例，无需 await）
+            # 获取 Redis 缓存客户端
             self._cache = cache_client
 
             # 如果主数据源不可用，自动切换到备用数据源
@@ -88,7 +88,7 @@ class DataSourceManager:
 
     async def _get_cache(self, key: str) -> Optional[Dict[str, Any]]:
         """
-        从文件缓存获取数据
+        从 Redis 缓存获取数据
 
         Args:
             key: 缓存键
@@ -491,16 +491,16 @@ class DataSourceManager:
                 "healthy": False
             },
             "current_source": self.current_source_name,
-            # 文件缓存连接状态（基于 diskcache 本地文件存储）
+            # Redis 缓存连接状态
             "cache_connected": False
         }
 
-        # 检查文件缓存连接
+        # 检查 Redis 缓存连接
         try:
             await self._cache.ping()
             health_status["cache_connected"] = True
         except Exception as e:
-            logger.warning(f"文件缓存连接检查失败: {e}")
+            logger.warning(f"Redis 缓存连接检查失败: {e}")
 
         # 检查主数据源
         if self._primary_source:

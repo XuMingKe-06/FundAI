@@ -71,7 +71,7 @@ app/
 ├── core/                      # 核心基础设施
 │   ├── config.py              # pydantic-settings 配置 (.env → Settings)
 │   ├── database.py            # SQLAlchemy async engine + session
-│   ├── cache.py               # 文件系统缓存
+│   ├── cache.py               # Redis 缓存
 │   ├── calculations/          # 技术指标计算（MA, MACD, RSI, Bollinger, KDJ 等）
 │   ├── data_quality.py        # 数据质量验证
 │   ├── data_provenance.py     # 数据来源标注
@@ -218,9 +218,9 @@ frontend/app/
 - 测试目录按模块组织：`tests/test_agents/`, `tests/test_api/`, `tests/test_core/`, `tests/test_data_sources/`, `tests/test_services/`, `tests/test_tools/`, `tests/test_prompts/`
 
 ### 关键设计决策
-- **SQLite 作为开发数据库**，生产环境使用 PostgreSQL（通过 `DATABASE_URL` 切换）
+- **PostgreSQL 作为数据库**，asyncpg 异步驱动，支持连接池
 - **SQLAlchemy async** 全异步数据库操作
-- **文件系统缓存**替代 Redis（开发环境零外部依赖），生产环境可切换 Redis
+- **Redis 作为缓存**，redis.asyncio 异步客户端，支持 TTL 和模式匹配
 - **前端通过设置页面管理 LLM 配置**，而非通过 `.env` 文件
 - **Nitro 代理**方案而非传统跨域请求，避免 CORS 复杂配置
 - **数据来源标注**机制追踪每条数据的来源和获取时间
