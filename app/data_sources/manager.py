@@ -2,6 +2,7 @@
 数据源管理器 - 管理多个数据源实例，实现自动切换和缓存机制
 使用 Redis 缓存
 """
+import asyncio
 from loguru import logger
 import json
 from datetime import date, datetime
@@ -42,38 +43,47 @@ class DataSourceManager:
 
         # 延迟初始化数据源实例
         self._initialized = False
+        # 异步锁，防止并发初始化
+        self._init_lock = asyncio.Lock()
 
         logger.info("数据源管理器创建完成")
 
     async def _ensure_initialized(self) -> None:
-        """确保数据源已初始化"""
+        """确保数据源已初始化（线程安全，防止并发重复初始化）"""
+        # 快速路径：已初始化则直接返回
         if self._initialized:
             return
 
-        try:
-            # 初始化主数据源
-            self._primary_source = TushareAdapter()
-            # 调用异步可用性检查，验证 token 是否有效
-            await self._primary_source.check_availability()
-            logger.info(f"主数据源（Tushare）初始化完成，可用状态: {self._primary_source.is_available}")
+        # 使用异步锁保护初始化过程，防止多个协程同时初始化
+        async with self._init_lock:
+            # 双重检查：获取锁后再次确认是否已被其他协程初始化
+            if self._initialized:
+                return
 
-            # 初始化备用数据源
-            self._backup_source = AkshareAdapter()
-            logger.info(f"备用数据源（Akshare）初始化完成，可用状态: {self._backup_source.is_available}")
+            try:
+                # 初始化主数据源
+                self._primary_source = TushareAdapter()
+                # 调用异步可用性检查，验证 token 是否有效
+                await self._primary_source.check_availability()
+                logger.info(f"主数据源（Tushare）初始化完成，可用状态: {self._primary_source.is_available}")
 
-            # 获取 Redis 缓存客户端
-            self._cache = cache_client
+                # 初始化备用数据源
+                self._backup_source = AkshareAdapter()
+                logger.info(f"备用数据源（Akshare）初始化完成，可用状态: {self._backup_source.is_available}")
 
-            # 如果主数据源不可用，自动切换到备用数据源
-            if not self._primary_source.is_available and self._backup_source.is_available:
-                self._current_source_type = DataSourceType.BACKUP
-                logger.warning("主数据源不可用，已自动切换到备用数据源")
+                # 获取 Redis 缓存客户端
+                self._cache = cache_client
 
-            self._initialized = True
+                # 如果主数据源不可用，自动切换到备用数据源
+                if not self._primary_source.is_available and self._backup_source.is_available:
+                    self._current_source_type = DataSourceType.BACKUP
+                    logger.warning("主数据源不可用，已自动切换到备用数据源")
 
-        except Exception as e:
-            logger.error(f"数据源初始化失败: {e}")
-            raise
+                self._initialized = True
+
+            except Exception as e:
+                logger.error(f"数据源初始化失败: {e}")
+                raise
 
     @property
     def current_source(self) -> Optional[BaseDataSource]:

@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://fundai:fundai@localhost:5432/fundai"
 
     # Redis 缓存配置
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # 使用 127.0.0.1 而非 localhost，避免 Windows 上 localhost 优先解析为 IPv6 导致连接超时
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
 
     # ==================== 数据源配置 ====================
     TUSHARE_TOKEN: str = ""
