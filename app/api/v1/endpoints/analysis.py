@@ -5,13 +5,13 @@
 import json
 import asyncio
 from loguru import logger
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.database import get_async_session
+from app.core.database import get_async_session, utcnow
 from app.models.fund import Fund
 from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
 from app.schemas.common import ApiResponse
@@ -68,13 +68,21 @@ async def create_analysis_session(
         fund_info = await datasource_manager.get_fund_info(request.fund_code)
 
         if fund_info:
+            # 处理 establish_date：缓存反序列化后可能变为字符串，需转为 date 对象
+            establish_date = fund_info.get("establish_date")
+            if isinstance(establish_date, str):
+                try:
+                    establish_date = datetime.strptime(establish_date[:10], "%Y-%m-%d").date()
+                except ValueError:
+                    establish_date = None
+
             # 创建新的基金记录
             new_fund = Fund(
                 fund_code=fund_info.get("fund_code", request.fund_code),
                 fund_name=fund_info.get("fund_name", "未知基金"),
                 fund_type=fund_info.get("fund_type"),
                 fund_manager=fund_info.get("fund_manager"),
-                establish_date=fund_info.get("establish_date"),
+                establish_date=establish_date,
                 current_scale=fund_info.get("current_scale"),
                 management_fee=fund_info.get("management_fee"),
             )
@@ -366,7 +374,7 @@ async def stream_analysis(
 
             # 更新会话状态
             analysis_session_obj.status = "completed"
-            analysis_session_obj.completed_at = datetime.now(timezone.utc)
+            analysis_session_obj.completed_at = utcnow()
             await analysis_session.commit()
 
             # 发送分析完成事件
@@ -492,7 +500,7 @@ async def get_analysis_report(
         fund_code=analysis_session.fund_code,
         fund_name=fund.fund_name if fund else "未知基金",
         created_at=analysis_session.created_at,
-        completed_at=analysis_session.completed_at or datetime.now(timezone.utc),
+        completed_at=analysis_session.completed_at or utcnow(),
         short_term_decision=ShortTermDecision(
             direction=short_term_data.get("direction", "hold"),
             holding_period=short_term_data.get("holding_period", ""),

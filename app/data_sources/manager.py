@@ -53,6 +53,8 @@ class DataSourceManager:
         try:
             # 初始化主数据源
             self._primary_source = TushareAdapter()
+            # 调用异步可用性检查，验证 token 是否有效
+            await self._primary_source.check_availability()
             logger.info(f"主数据源（Tushare）初始化完成，可用状态: {self._primary_source.is_available}")
 
             # 初始化备用数据源
@@ -173,7 +175,12 @@ class DataSourceManager:
                 if result is not None and cache_key and cache_expire:
                     await self._set_cache(cache_key, result, cache_expire)
 
-                return result
+                if result is not None:
+                    return result
+
+                # 结果为 None，可能是数据源内部错误（如 token 失效），
+                # 继续尝试备用数据源
+                logger.warning(f"数据源 {source.name} 执行 {method_name} 返回空结果，尝试备用数据源")
 
             except Exception as e:
                 logger.error(f"数据源 {source.name} 执行 {method_name} 失败: {e}")

@@ -36,6 +36,7 @@ class CacheClient:
                 settings.REDIS_URL,
                 decode_responses=True,  # 自动将 bytes 解码为 str
                 max_connections=10,
+                protocol=2,  # 强制使用 RESP2 协议，兼容不支持 HELLO 命令的旧版 Redis 服务器
             )
         return self._redis
 

@@ -13,6 +13,7 @@ import uuid
 import random
 
 from app.services.rag_service import get_rag_service
+from app.core.database import utcnow
 from app.services.llm_service import get_llm_service
 from app.agents.tools.base import ToolRegistry, ToolResult
 from app.agents.prompts import get_prompt_template
@@ -874,19 +875,19 @@ class BaseAgent(ABC):
         Returns:
             分析结果字典
         """
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = utcnow()
         self.status = "running"
 
         try:
             result = await self.analyze(fund_code, context)
             self.status = "completed"
-            self.completed_at = datetime.now(timezone.utc)
+            self.completed_at = utcnow()
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             return result
         except Exception as e:
             self.status = "failed"
             self.error_message = str(e)
-            self.completed_at = datetime.now(timezone.utc)
+            self.completed_at = utcnow()
             self.duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
             raise
     

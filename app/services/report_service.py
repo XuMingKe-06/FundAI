@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, utcnow
 from app.models.analysis import AgentOutput, DecisionReport
 from app.agents.orchestrator import AgentOrchestrator
 
@@ -37,8 +37,8 @@ async def save_agent_snapshot(session_id: str, agent) -> None:
                 thinking_process=json.dumps(agent.thinking_process, ensure_ascii=False, default=str) if agent.thinking_process else None,
                 tools_called=tools_called_data,
                 error_message=agent.error_message,
-                started_at=agent.started_at or datetime.now(timezone.utc),
-                completed_at=agent.completed_at or datetime.now(timezone.utc),
+                started_at=agent.started_at or utcnow(),
+                completed_at=agent.completed_at or utcnow(),
                 duration_ms=agent.duration_ms
             )
             db_session.add(agent_output)
@@ -75,7 +75,7 @@ async def save_agent_outputs(
                 thinking_process=json.dumps(agent.thinking_process, ensure_ascii=False, default=str) if agent.thinking_process else None,
                 tools_called=tools_called_data,
                 error_message=agent.error_message,
-                started_at=agent.started_at or datetime.now(timezone.utc),
+                started_at=agent.started_at or utcnow(),
                 completed_at=agent.completed_at,
                 duration_ms=agent.duration_ms
             )
@@ -98,7 +98,7 @@ async def save_agent_outputs(
             thinking_process=json.dumps(decision_agent.thinking_process, ensure_ascii=False, default=str) if decision_agent.thinking_process else None,
             tools_called=decision_tools_called_data,
             error_message=decision_agent.error_message,
-            started_at=decision_agent.started_at or datetime.now(timezone.utc),
+            started_at=decision_agent.started_at or utcnow(),
             completed_at=decision_agent.completed_at,
             duration_ms=decision_agent.duration_ms
         )

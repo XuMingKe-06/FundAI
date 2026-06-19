@@ -227,6 +227,10 @@ def _intercept_standard_logging(level: int = logging.DEBUG, debug_mode: bool = T
     chromadb_logger = logging.getLogger("chromadb")
     chromadb_logger.setLevel(logging.WARNING)
 
+    # watchfiles 日志级别设为 WARNING（避免 --reload 时大量 "change detected" 噪音）
+    watchfiles_logger = logging.getLogger("watchfiles.main")
+    watchfiles_logger.setLevel(logging.WARNING)
+
 
 def setup_logging(
     console_level: str = "DEBUG",
