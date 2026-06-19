@@ -147,7 +147,6 @@
                             <span class="tool-name">{{ step.toolChineseName || step.toolName || step.text }}</span>
                             <span class="tool-status-badge" :class="getToolStatusClass(step.toolStatus)">{{ getToolStatusText(step.toolStatus) }}</span>
                           </div>
-                          <div v-if="step.toolArgs" class="tool-call-args">{{ formatToolArgs(step.toolArgs) }}</div>
                         </div>
                         <!-- 工具结果展示 -->
                         <div v-if="step.toolResultText" class="tool-result-display">
@@ -308,17 +307,6 @@ function getToolStatusClass(status?: string): string {
     completed: 'success',
   }
   return map[status || ''] || 'pending'
-}
-
-/* 格式化工具参数 */
-function formatToolArgs(args: string | Record<string, any> | undefined): string {
-  if (!args) return ''
-  if (typeof args === 'string') return args
-  try {
-    return JSON.stringify(args, null, 2)
-  } catch {
-    return String(args)
-  }
 }
 
 /* 判断是否显示辩论指示器 */

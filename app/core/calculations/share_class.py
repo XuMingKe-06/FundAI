@@ -106,10 +106,19 @@ def _generate_recommendation(
 def estimate_share_class_fees(
     fees_data: Dict[str, Any]
 ) -> Dict[str, Any]:
-    purchase_fee = float(fees_data.get("purchase_fee", 0.015))
-    redemption_fee = float(fees_data.get("redemption_fee", 0.005))
-    management_fee = float(fees_data.get("management_fee", 0.015))
-    sales_service_fee_c = float(fees_data.get("sales_service_fee", 0.004))
+    # 当费率字段值为 None 时（数据源未获取到），使用默认值
+    def _safe_float(value, default):
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    purchase_fee = _safe_float(fees_data.get("purchase_fee"), 0.015)
+    redemption_fee = _safe_float(fees_data.get("redemption_fee"), 0.005)
+    management_fee = _safe_float(fees_data.get("management_fee"), 0.015)
+    sales_service_fee_c = _safe_float(fees_data.get("sales_service_fee"), 0.004)
 
     purchase_fee_a = purchase_fee
     purchase_fee_c = 0.0

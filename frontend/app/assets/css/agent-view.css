@@ -485,18 +485,6 @@
 .tool-status-badge.pending { background: var(--color-gray-100); color: var(--color-gray-500); }
 .tool-status-badge.failed { background: var(--color-danger-50); color: var(--color-danger-600); }
 
-.tool-call-args {
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: var(--leading-relaxed);
-  background: var(--bg-tertiary);
-  white-space: pre-wrap;
-  word-break: break-all;
-  transition: background-color var(--transition-base);
-}
-
 /* 工具结果展示 */
 .tool-result-display {
   margin-top: var(--space-2);

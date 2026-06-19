@@ -73,10 +73,23 @@ class AkshareAdapter(BaseDataSource):
         而 Tushare 返回小数形式（如 0.015 代表 1.5%）。
         此方法统一转换为小数形式。
         """
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        # 记录原始值是否包含 %（百分比形式）
+        is_percentage = isinstance(value, str) and "%" in value
+        # 提取字符串中的数字部分（如 "1.20%（每年）" -> "1.20"）
+        if isinstance(value, str):
+            import re
+            match = re.search(r"[\d.]+", value)
+            if match:
+                value = match.group()
+            else:
+                return None
         v = self._safe_float(value)
         if v is None:
             return None
-        if v > 1:
+        # 百分比形式或值大于 1 时，除以 100 转为小数
+        if is_percentage or v > 1:
             v = v / 100
         return v
     
@@ -214,8 +227,9 @@ class AkshareAdapter(BaseDataSource):
         
         try:
             # 使用 to_thread 包装同步调用
+            # 注意：指数基金（如 000300）不支持 fund_open_fund_info_em，会抛出 ReferenceError
             nav_df = await asyncio.to_thread(ak.fund_open_fund_info_em, symbol=fund_code, indicator="单位净值走势")
-            
+
             if nav_df.empty:
                 logger.warning(f"未找到基金 {fund_code} 的净值数据")
                 return []
@@ -272,7 +286,12 @@ class AkshareAdapter(BaseDataSource):
             return results
             
         except Exception as e:
-            logger.error(f"获取基金 {fund_code} 净值历史失败: {e}")
+            # 指数基金（如 000300）不支持 fund_open_fund_info_em，akshare 内部执行 JS 时
+            # 会抛出 ReferenceError: Data_netWorthTrend is not defined，属于正常情况
+            if "ReferenceError" in str(e) or "Data_netWorthTrend" in str(e):
+                logger.warning(f"基金 {fund_code} 不支持净值查询（可能为指数基金）: {e}")
+            else:
+                logger.error(f"获取基金 {fund_code} 净值历史失败: {e}")
             return []
     
     async def get_holdings(self, fund_code: str) -> Optional[Dict[str, Any]]:
@@ -295,35 +314,37 @@ class AkshareAdapter(BaseDataSource):
             stock_holdings = []
             bond_holdings = []
             report_date = None
-            
+
             for year in range(current_year, current_year - 3, -1):
                 try:
-                    # 使用 to_thread 包装同步调用
-                    stock_df = await asyncio.to_thread(ak.fund_portfolio_hold_em, symbol=fund_code, year=str(year))
-                    
+                    # akshare 接口变更：参数从 year 改为 date
+                    stock_df = await asyncio.to_thread(ak.fund_portfolio_hold_em, symbol=fund_code, date=str(year))
+
                     if stock_df is not None and not stock_df.empty:
                         for _, row in stock_df.iterrows():
                             stock_holdings.append({
                                 "stock_code": str(row.get("股票代码", "")),
                                 "stock_name": str(row.get("股票名称", "")),
-                                "shares": self._safe_float(row.get("持仓股数")),
+                                # akshare 列名变更：持仓股数 -> 持股数
+                                "shares": self._safe_float(row.get("持股数", row.get("持仓股数"))),
                                 "market_value": self._safe_float(row.get("持仓市值")),
                                 "proportion": self._safe_float(row.get("占净值比例")),
                             })
-                        
+
                         # 记录报告日期
                         if report_date is None and not stock_holdings:
                             # 尝试从数据中获取报告日期
                             pass
-                        
+
                         if stock_holdings:
                             break
                 except Exception as e:
                     logger.debug(f"获取 {year} 年股票持仓失败: {e}")
-            
+
             # 尝试获取债券持仓
             try:
-                bond_df = await asyncio.to_thread(ak.fund_portfolio_bond_hold_em, symbol=fund_code, year=str(current_year))
+                # akshare 接口变更：参数从 year 改为 date
+                bond_df = await asyncio.to_thread(ak.fund_portfolio_bond_hold_em, symbol=fund_code, date=str(current_year))
                 
                 if bond_df is not None and not bond_df.empty:
                     for _, row in bond_df.iterrows():
@@ -391,24 +412,16 @@ class AkshareAdapter(BaseDataSource):
     async def get_fund_fees(self, fund_code: str) -> Optional[Dict[str, Any]]:
         """
         获取费率信息
-        
+
         Args:
             fund_code: 基金代码
-            
+
         Returns:
             费率信息字典
         """
         self._ensure_available()
-        
+
         try:
-            # 使用 to_thread 包装同步调用
-            fee_df = await asyncio.to_thread(ak.fund_fee_em, symbol=fund_code)
-            
-            if fee_df is None or fee_df.empty:
-                logger.warning(f"未找到基金 {fund_code} 的费率信息")
-                return None
-            
-            # 解析费率数据
             result = {
                 "fund_code": fund_code,
                 "management_fee": None,
@@ -417,27 +430,65 @@ class AkshareAdapter(BaseDataSource):
                 "redemption_fee": None,
                 "service_fee": None,
             }
-            
-            if isinstance(fee_df, pd.DataFrame):
-                if "item" in fee_df.columns and "value" in fee_df.columns:
-                    fee_dict = dict(zip(fee_df["item"], fee_df["value"]))
-                    result["management_fee"] = self._normalize_fee_rate(fee_dict.get("管理费率"))
-                    result["custody_fee"] = self._normalize_fee_rate(fee_dict.get("托管费率"))
-                    result["service_fee"] = self._normalize_fee_rate(fee_dict.get("销售服务费率"))
-                else:
-                    for col in fee_df.columns:
-                        col_lower = col.lower()
-                        if "管理费" in col or "management" in col_lower:
-                            result["management_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
-                        elif "托管费" in col or "custody" in col_lower:
-                            result["custody_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
-                        elif "申购费" in col or "purchase" in col_lower:
-                            result["purchase_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
-                        elif "赎回费" in col or "redemption" in col_lower:
-                            result["redemption_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
-                        elif "服务费" in col or "service" in col_lower:
-                            result["service_fee"] = self._normalize_fee_rate(fee_df[col].iloc[0])
-            
+
+            # 1. 获取运作费用（管理费率、托管费率、销售服务费率）
+            # fund_fee_em 必须指定 indicator，否则默认 "认购费率" 不被支持会返回空
+            try:
+                op_df = await asyncio.to_thread(
+                    ak.fund_fee_em, symbol=fund_code, indicator="运作费用"
+                )
+                if op_df is not None and not op_df.empty:
+                    # 运作费用返回宽表格式：管理费率 | 1.20%（每年） | 托管费率 | 0.20%（每年） | 销售服务费率 | ---
+                    row = op_df.iloc[0]
+                    for i in range(0, len(row), 2):
+                        label = str(row.iloc[i]) if i < len(row) else ""
+                        value = str(row.iloc[i + 1]) if i + 1 < len(row) else ""
+                        if "管理费" in label:
+                            result["management_fee"] = self._normalize_fee_rate(value)
+                        elif "托管费" in label:
+                            result["custody_fee"] = self._normalize_fee_rate(value)
+                        elif "销售服务费" in label:
+                            result["service_fee"] = self._normalize_fee_rate(value)
+            except Exception as e:
+                logger.debug(f"获取基金 {fund_code} 运作费用失败: {e}")
+
+            # 2. 获取申购费率（前端）
+            try:
+                purchase_df = await asyncio.to_thread(
+                    ak.fund_fee_em, symbol=fund_code, indicator="申购费率（前端）"
+                )
+                if purchase_df is not None and not purchase_df.empty:
+                    # 取第一档申购费率（最小金额对应的费率）
+                    # 注意：最后一档可能是固定费用（如"每笔1000元"），不是百分比费率
+                    if "原费率" in purchase_df.columns:
+                        result["purchase_fee"] = self._normalize_fee_rate(
+                            purchase_df["原费率"].iloc[0]
+                        )
+                    elif "原费率|天天基金优惠费率" in purchase_df.columns:
+                        result["purchase_fee"] = self._normalize_fee_rate(
+                            purchase_df["原费率|天天基金优惠费率"].iloc[0]
+                        )
+            except Exception as e:
+                logger.debug(f"获取基金 {fund_code} 申购费率失败: {e}")
+
+            # 3. 获取赎回费率
+            try:
+                redemption_df = await asyncio.to_thread(
+                    ak.fund_fee_em, symbol=fund_code, indicator="赎回费率"
+                )
+                if redemption_df is not None and not redemption_df.empty:
+                    # 取最低一档赎回费率（通常为持有时间最长对应的费率）
+                    if "赎回费率" in redemption_df.columns:
+                        result["redemption_fee"] = self._normalize_fee_rate(
+                            redemption_df["赎回费率"].iloc[-1]
+                        )
+                    elif "原费率" in redemption_df.columns:
+                        result["redemption_fee"] = self._normalize_fee_rate(
+                            redemption_df["原费率"].iloc[-1]
+                        )
+            except Exception as e:
+                logger.debug(f"获取基金 {fund_code} 赎回费率失败: {e}")
+
             # 获取基金名称
             try:
                 fund_info = await self.get_fund_info(fund_code)
@@ -445,9 +496,9 @@ class AkshareAdapter(BaseDataSource):
                     result["fund_name"] = fund_info.get("fund_name", "")
             except Exception:
                 pass
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"获取基金 {fund_code} 费率信息失败: {e}")
             return None
