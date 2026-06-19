@@ -5,11 +5,17 @@ echo "  FundAI - 多智能体场外基金分析决策系统"
 echo "========================================"
 echo ""
 
-# 检查 Python
-if ! command -v python3 &> /dev/null; then
+# 检查 Python（兼容 Windows 和 Linux/macOS）
+PYTHON_CMD=""
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null && python --version 2>&1 | grep -q "3\."; then
+    PYTHON_CMD="python"
+else
     echo "[错误] 未找到 Python3，请先安装 Python 3.12+"
     exit 1
 fi
+echo "[信息] 使用 Python: $($PYTHON_CMD --version)"
 
 # 检查 Node.js
 if ! command -v node &> /dev/null; then
@@ -20,7 +26,7 @@ fi
 # 检查是否首次运行
 if [ ! -d ".venv" ]; then
     echo "[信息] 首次运行，正在安装后端依赖..."
-    python3 -m venv .venv
+    $PYTHON_CMD -m venv .venv
     if [ -f ".venv/Scripts/activate" ]; then
         source .venv/Scripts/activate
     else
@@ -45,7 +51,7 @@ mkdir -p data/chroma
 
 echo ""
 echo "[信息] 正在启动后端服务..."
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+$PYTHON_CMD -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 echo "[信息] 正在启动前端服务..."

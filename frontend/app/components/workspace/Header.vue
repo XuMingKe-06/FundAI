@@ -38,7 +38,6 @@
         <span class="topbar-fund-code">{{ currentFundCode }}</span>
         <span class="topbar-fund-name">{{ currentFundName }}</span>
       </div>
-      <ThemeToggle />
       <button
         class="topbar-btn"
         :disabled="isAnalyzing"

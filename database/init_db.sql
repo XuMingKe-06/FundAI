@@ -259,7 +259,7 @@ INSERT INTO users (id, phone, username, email, password_hash, salt, role, risk_p
 -- 插入用户设置
 INSERT INTO user_settings (user_id, default_display_preference, notification_settings) VALUES
 ('00000000-0000-0000-0000-000000000001', '{"theme": "light", "language": "zh-CN"}', '{"email": true, "sms": true}'),
-('00000000-0000-0000-0000-000000000002', '{"theme": "dark", "language": "zh-CN"}', '{"email": true, "sms": false}');
+('00000000-0000-0000-0000-000000000002', '{"theme": "light", "language": "zh-CN"}', '{"email": true, "sms": false}');
 
 -- 插入测试基金数据
 INSERT INTO funds (fund_code, fund_name, fund_type, fund_manager, establish_date, management_fee, custody_fee, current_scale, purchase_status, redemption_status, benchmark, is_qdii, share_class) VALUES

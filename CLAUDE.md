@@ -145,7 +145,6 @@ frontend/app/
 │   │   ├── StatusBadge.vue    # 状态徽章
 │   │   └── TrendArrow.vue     # 趋势箭头
 │   ├── RiskSelect.vue         # 风险偏好选择器
-│   ├── ThemeToggle.vue        # 主题切换
 │   └── ThinkingIndicator.vue  # 思考指示器
 ├── stores/                    # Pinia 状态管理
 │   ├── analysis.ts            # 分析报告状态（SSE订阅/暂停/恢复）

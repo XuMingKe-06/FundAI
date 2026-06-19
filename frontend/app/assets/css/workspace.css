@@ -928,27 +928,6 @@
   color: var(--color-danger-600);
 }
 
-/* 深色模式 - 智能体状态 */
-[data-theme="dark"] .agent-status.completed {
-  background: rgba(52, 211, 153, 0.12);
-  color: var(--color-success-500);
-}
-
-[data-theme="dark"] .agent-status.running {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--color-primary-500);
-}
-
-[data-theme="dark"] .agent-status.pending {
-  background: var(--color-gray-200);
-  color: var(--color-gray-400);
-}
-
-[data-theme="dark"] .agent-status.error {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--color-danger-500);
-}
-
 .agent-summary {
   font-size: var(--text-xs);
   color: var(--text-tertiary);

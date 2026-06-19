@@ -227,14 +227,6 @@
 .agent-icon.sentiment { background: #FDF4FF; color: #A855F7; }
 .agent-icon.decision { background: var(--color-primary-50); color: var(--color-primary-600); }
 
-/* 深色模式智能体图标 */
-[data-theme="dark"] .agent-icon.fundamental { background: rgba(79, 70, 229, 0.15); color: #818CF8; }
-[data-theme="dark"] .agent-icon.technical { background: rgba(194, 65, 12, 0.15); color: #FB923C; }
-[data-theme="dark"] .agent-icon.risk { background: rgba(220, 38, 38, 0.15); color: #F87171; }
-[data-theme="dark"] .agent-icon.cost { background: rgba(22, 163, 74, 0.15); color: #4ADE80; }
-[data-theme="dark"] .agent-icon.sentiment { background: rgba(168, 85, 247, 0.15); color: #C084FC; }
-[data-theme="dark"] .agent-icon.decision { background: rgba(59, 130, 246, 0.15); color: var(--color-primary-500); }
-
 /* 阶段信息 */
 .phase-info {
   flex: 1;
@@ -270,12 +262,6 @@
 .phase-badge.pending { background: var(--color-gray-100); color: var(--color-gray-500); }
 .phase-badge.error { background: var(--color-danger-50); color: var(--color-danger-600); }
 
-/* 深色模式状态徽章 */
-[data-theme="dark"] .phase-badge.completed { background: rgba(52, 211, 153, 0.12); color: var(--color-success-500); }
-[data-theme="dark"] .phase-badge.running { background: rgba(59, 130, 246, 0.15); color: var(--color-primary-500); }
-[data-theme="dark"] .phase-badge.pending { background: var(--color-gray-200); color: var(--color-gray-400); }
-[data-theme="dark"] .phase-badge.error { background: rgba(248, 113, 113, 0.12); color: var(--color-danger-500); }
-
 /* 评分徽章 */
 .phase-score {
   font-family: var(--font-data);
@@ -286,10 +272,6 @@
   background: var(--color-primary-50);
   border-radius: var(--radius-sm);
   flex-shrink: 0;
-}
-
-[data-theme="dark"] .phase-score {
-  background: rgba(59, 130, 246, 0.15);
 }
 
 /* 折叠/展开按钮 */
@@ -428,10 +410,6 @@
   display: none;
 }
 
-[data-theme="dark"] .deep-thinking-summary {
-  background: rgba(139, 92, 246, 0.08);
-}
-
 .deep-thinking-summary:hover {
   background: rgba(139, 92, 246, 0.08);
 }
@@ -487,11 +465,6 @@
   letter-spacing: 0.5px;
 }
 
-[data-theme="dark"] .tool-badge {
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--color-warning-500);
-}
-
 .tool-name {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -511,11 +484,6 @@
 .tool-status-badge.running { background: var(--color-primary-50); color: var(--color-primary-600); }
 .tool-status-badge.pending { background: var(--color-gray-100); color: var(--color-gray-500); }
 .tool-status-badge.failed { background: var(--color-danger-50); color: var(--color-danger-600); }
-
-[data-theme="dark"] .tool-status-badge.success { background: rgba(52, 211, 153, 0.12); color: var(--color-success-500); }
-[data-theme="dark"] .tool-status-badge.running { background: rgba(59, 130, 246, 0.15); color: var(--color-primary-500); }
-[data-theme="dark"] .tool-status-badge.pending { background: var(--color-gray-200); color: var(--color-gray-400); }
-[data-theme="dark"] .tool-status-badge.failed { background: rgba(248, 113, 113, 0.12); color: var(--color-danger-500); }
 
 .tool-call-args {
   padding: var(--space-2) var(--space-3);
@@ -538,10 +506,6 @@
   font-size: var(--text-xs);
   line-height: var(--leading-relaxed);
   border-left: 3px solid var(--color-success-500);
-}
-
-[data-theme="dark"] .tool-result-display {
-  background: rgba(52, 211, 153, 0.08);
 }
 
 .tool-result-label {
@@ -592,20 +556,11 @@
   box-shadow: var(--shadow-md), 0 0 0 2px var(--color-primary-100);
 }
 
-[data-theme="dark"] .agent-phase.decision-phase .phase-card {
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
 /* ==================== 聚焦智能体样式 ==================== */
 .agent-phase.focused .phase-card {
   border-color: var(--color-primary-300);
   box-shadow: 0 0 0 2px var(--color-primary-100), var(--shadow-md);
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-[data-theme="dark"] .agent-phase.focused .phase-card {
-  border-color: rgba(59, 130, 246, 0.5);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), var(--shadow-md);
 }
 
 /* ==================== 辩论指示器 ==================== */
@@ -619,11 +574,6 @@
   align-items: center;
   gap: var(--space-3);
   animation: debate-flash 2s ease-in-out infinite;
-}
-
-[data-theme="dark"] .debate-indicator {
-  background: rgba(251, 191, 36, 0.08);
-  border-color: rgba(251, 191, 36, 0.2);
 }
 
 @keyframes debate-flash {
@@ -649,10 +599,6 @@
   font-size: var(--text-sm);
   color: var(--color-warning-700);
   font-weight: var(--font-medium);
-}
-
-[data-theme="dark"] .debate-text {
-  color: var(--color-warning-500);
 }
 
 .debate-detail {

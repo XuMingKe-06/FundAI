@@ -147,23 +147,6 @@ function formatScoreValue(score: number | string): string {
   opacity: 0.85;
 }
 
-/* 深色模式按钮适配 */
-[data-theme="dark"] .btn-reanalyze {
-  background: rgba(251, 191, 36, 0.12);
-  color: var(--color-warning-500);
-}
-
-[data-theme="dark"] .btn-pause,
-[data-theme="dark"] .btn-report {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--color-primary-500);
-}
-
-[data-theme="dark"] .btn-resume {
-  background: rgba(52, 211, 153, 0.12);
-  color: var(--color-success-500);
-}
-
 .collapsed-agent-list {
   flex: 1;
   overflow-y: auto;
