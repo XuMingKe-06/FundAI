@@ -387,5 +387,36 @@ class RiskAgent(BaseAgent):
             sharpe = risk_metrics.get("sharpe_ratio", 0)
             risk_level = "高" if volatility > 25 or max_dd > 20 else ("中" if volatility > 15 else "低")
             self.summary = f"风险等级{risk_level}，年化波动率{volatility}%，最大回撤{max_dd}%，夏普比率{sharpe}"
-        
+
+        # LLM 未返回 score 时，根据风险指标自动计算
+        if self.score is None:
+            volatility = risk_metrics.get("annual_volatility", 0) or 0
+            max_dd = risk_metrics.get("max_drawdown", 0) or 0
+            sharpe = risk_metrics.get("sharpe_ratio", 0) or 0
+
+            if volatility < 10:
+                base_score = 4.5
+            elif volatility < 15:
+                base_score = 4.0
+            elif volatility < 20:
+                base_score = 3.5
+            elif volatility < 25:
+                base_score = 2.5
+            else:
+                base_score = 1.5
+
+            if max_dd > 30:
+                base_score -= 0.5
+            elif max_dd > 20:
+                base_score -= 0.3
+            elif max_dd < 10:
+                base_score += 0.3
+
+            if sharpe > 1.0:
+                base_score += 0.3
+            elif sharpe < 0:
+                base_score -= 0.3
+
+            self.score = max(1.0, min(5.0, round(base_score, 1)))
+
         return self.to_dict()

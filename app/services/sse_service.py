@@ -49,7 +49,7 @@ async def run_analysis_with_streaming(
     """
     event_queue: asyncio.Queue = asyncio.Queue()
     # 记录分析流启动信息
-    logger.info("启动分析流式推送 | fund_code={} | mode={} | session_id={}", context.get("fund_code", "unknown"), analysis_mode, session_id)
+    logger.info("启动分析流式推送 | fund_code={} | mode={} | session_id={}", fund_code, analysis_mode, session_id)
 
     # 注册全局事件队列和缓冲区，支持页面刷新重连时复用
     if session_id:

@@ -317,6 +317,16 @@ class GetMarketIndexTool(BaseTool):
             "required": ["index_code"]
         }
     
+    # 指数代码到ETF基金代码的映射（get_nav_history 仅支持基金代码）
+    _INDEX_TO_ETF = {
+        "000300": "510300",  # 沪深300 → 沪深300ETF
+        "000001": "510210",  # 上证指数 → 上证ETF
+        "399001": "159901",  # 深证成指 → 深100ETF
+        "000016": "510050",  # 上证50 → 上证50ETF
+        "000905": "510500",  # 中证500 → 中证500ETF
+        "000852": "512100",  # 中证1000 → 中证1000ETF
+    }
+
     async def execute(self, index_code: str, days: int = 30) -> ToolResult:
         """
         执行市场指数获取
@@ -334,8 +344,11 @@ class GetMarketIndexTool(BaseTool):
             end_date = date.today()
             start_date = end_date - timedelta(days=days)
             
+            # 指数代码无法直接通过基金净值接口查询，映射到对应的ETF基金代码
+            query_code = self._INDEX_TO_ETF.get(index_code, index_code)
+            
             index_data = await datasource_manager.get_nav_history(
-                index_code, start_date, end_date
+                query_code, start_date, end_date
             )
             
             if not index_data:

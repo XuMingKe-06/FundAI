@@ -13,6 +13,24 @@ from .base import BaseDataSource
 class AkshareAdapter(BaseDataSource):
     """Akshare 数据源适配器，作为 Tushare 的备用数据源"""
     
+    # 全局异步锁：akshare 内部使用 py_mini_racer（V8 引擎）执行 JS 代码，
+    # V8 的 partition address space 在 Windows 上不支持并发初始化，
+    # 并行模式下多个协程同时调用 akshare 会导致 FATAL 崩溃。
+    # 此锁确保所有 akshare 调用串行执行。
+    _akshare_lock: asyncio.Lock = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """延迟初始化全局锁（确保在事件循环内创建）"""
+        if cls._akshare_lock is None:
+            cls._akshare_lock = asyncio.Lock()
+        return cls._akshare_lock
+
+    async def _call_akshare(self, func, *args, **kwargs):
+        """用全局锁序列化 akshare 调用，避免 V8 引擎并发崩溃"""
+        async with self._get_lock():
+            return await asyncio.to_thread(func, *args, **kwargs)
+
     def __init__(self):
         """初始化 Akshare（无需 token）"""
         super().__init__(name="akshare")
@@ -107,7 +125,7 @@ class AkshareAdapter(BaseDataSource):
         
         try:
             # 使用 to_thread 包装同步的 Akshare 调用
-            fund_name_df = await asyncio.to_thread(ak.fund_name_em)
+            fund_name_df = await self._call_akshare(ak.fund_name_em)
             
             # 筛选指定基金
             fund_row = fund_name_df[fund_name_df["基金代码"] == fund_code]
@@ -123,7 +141,7 @@ class AkshareAdapter(BaseDataSource):
             # 尝试从雪球获取更详细的信息
             detailed_info = {}
             try:
-                xq_df = await asyncio.to_thread(ak.fund_individual_basic_info_xq, symbol=fund_code)
+                xq_df = await self._call_akshare(ak.fund_individual_basic_info_xq, symbol=fund_code)
                 if xq_df is not None and not xq_df.empty:
                     # 将 DataFrame 转换为字典
                     info_dict = dict(zip(xq_df["item"], xq_df["value"]))
@@ -178,7 +196,7 @@ class AkshareAdapter(BaseDataSource):
         
         try:
             # 使用 to_thread 包装同步调用
-            fund_name_df = await asyncio.to_thread(ak.fund_name_em)
+            fund_name_df = await self._call_akshare(ak.fund_name_em)
             
             if fund_name_df.empty:
                 return []
@@ -228,7 +246,7 @@ class AkshareAdapter(BaseDataSource):
         try:
             # 使用 to_thread 包装同步调用
             # 注意：指数基金（如 000300）不支持 fund_open_fund_info_em，会抛出 ReferenceError
-            nav_df = await asyncio.to_thread(ak.fund_open_fund_info_em, symbol=fund_code, indicator="单位净值走势")
+            nav_df = await self._call_akshare(ak.fund_open_fund_info_em, symbol=fund_code, indicator="单位净值走势")
 
             if nav_df.empty:
                 logger.warning(f"未找到基金 {fund_code} 的净值数据")
@@ -261,7 +279,7 @@ class AkshareAdapter(BaseDataSource):
             
             # 尝试获取累计净值
             try:
-                acc_nav_df = await asyncio.to_thread(ak.fund_open_fund_info_em, symbol=fund_code, indicator="累计净值走势")
+                acc_nav_df = await self._call_akshare(ak.fund_open_fund_info_em, symbol=fund_code, indicator="累计净值走势")
                 if not acc_nav_df.empty:
                     acc_nav_df.columns = ["净值日期", "累计净值"]
                     
@@ -318,7 +336,7 @@ class AkshareAdapter(BaseDataSource):
             for year in range(current_year, current_year - 3, -1):
                 try:
                     # akshare 接口变更：参数从 year 改为 date
-                    stock_df = await asyncio.to_thread(ak.fund_portfolio_hold_em, symbol=fund_code, date=str(year))
+                    stock_df = await self._call_akshare(ak.fund_portfolio_hold_em, symbol=fund_code, date=str(year))
 
                     if stock_df is not None and not stock_df.empty:
                         for _, row in stock_df.iterrows():
@@ -344,7 +362,7 @@ class AkshareAdapter(BaseDataSource):
             # 尝试获取债券持仓
             try:
                 # akshare 接口变更：参数从 year 改为 date
-                bond_df = await asyncio.to_thread(ak.fund_portfolio_bond_hold_em, symbol=fund_code, date=str(current_year))
+                bond_df = await self._call_akshare(ak.fund_portfolio_bond_hold_em, symbol=fund_code, date=str(current_year))
                 
                 if bond_df is not None and not bond_df.empty:
                     for _, row in bond_df.iterrows():
@@ -386,7 +404,7 @@ class AkshareAdapter(BaseDataSource):
         
         try:
             # 使用 to_thread 包装同步调用
-            xq_df = await asyncio.to_thread(ak.fund_individual_basic_info_xq, symbol=fund_code)
+            xq_df = await self._call_akshare(ak.fund_individual_basic_info_xq, symbol=fund_code)
             
             if xq_df is None or xq_df.empty:
                 return None
@@ -434,7 +452,7 @@ class AkshareAdapter(BaseDataSource):
             # 1. 获取运作费用（管理费率、托管费率、销售服务费率）
             # fund_fee_em 必须指定 indicator，否则默认 "认购费率" 不被支持会返回空
             try:
-                op_df = await asyncio.to_thread(
+                op_df = await self._call_akshare(
                     ak.fund_fee_em, symbol=fund_code, indicator="运作费用"
                 )
                 if op_df is not None and not op_df.empty:
@@ -454,7 +472,7 @@ class AkshareAdapter(BaseDataSource):
 
             # 2. 获取申购费率（前端）
             try:
-                purchase_df = await asyncio.to_thread(
+                purchase_df = await self._call_akshare(
                     ak.fund_fee_em, symbol=fund_code, indicator="申购费率（前端）"
                 )
                 if purchase_df is not None and not purchase_df.empty:
@@ -473,7 +491,7 @@ class AkshareAdapter(BaseDataSource):
 
             # 3. 获取赎回费率
             try:
-                redemption_df = await asyncio.to_thread(
+                redemption_df = await self._call_akshare(
                     ak.fund_fee_em, symbol=fund_code, indicator="赎回费率"
                 )
                 if redemption_df is not None and not redemption_df.empty:
@@ -515,7 +533,7 @@ class AkshareAdapter(BaseDataSource):
         
         try:
             # 使用 to_thread 包装同步调用
-            test_df = await asyncio.to_thread(ak.fund_name_em)
+            test_df = await self._call_akshare(ak.fund_name_em)
             
             if test_df is not None and not test_df.empty:
                 self.is_available = True
