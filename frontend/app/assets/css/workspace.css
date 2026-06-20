@@ -214,21 +214,6 @@
   width: var(--sidebar-width-left-collapsed);
 }
 
-/* 左侧边栏头部 */
-.sidebar-left-header {
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-base);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sidebar-left-header h3 {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
 .sidebar-search {
   padding: var(--space-3) var(--space-4);
 }
