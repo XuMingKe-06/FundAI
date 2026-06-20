@@ -10,7 +10,7 @@
           <!-- 工作台按钮 -->
           <button class="btn-workspace" @click="navigateToWorkspacePage">工作台</button>
           <!-- 设置按钮，跳转到设置页面 -->
-          <NuxtLink to="/settings" class="btn-settings">
+          <NuxtLink to="/settings?from=index" class="btn-settings">
             设置
           </NuxtLink>
         </div>

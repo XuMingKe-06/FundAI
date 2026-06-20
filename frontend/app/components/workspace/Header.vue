@@ -87,7 +87,7 @@ const searchBarRef = ref<HTMLElement | null>(null)
 
 /* 跳转到设置页面 */
 function navigateToSettings() {
-  router.push('/settings')
+  router.push('/settings?from=workspace')
 }
 
 function onInput(event: Event) {

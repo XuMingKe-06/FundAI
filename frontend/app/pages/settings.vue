@@ -7,7 +7,7 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
-          返回工作台
+          返回
         </button>
       </div>
       <h1 class="header-title">系统设置</h1>
@@ -351,13 +351,21 @@ import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '~/stores/settings'
 import { useAnalysisSettings, type AnalysisMode } from '~/composables/useAnalysisSettings'
 
+const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const { analysisMode, saveMode } = useAnalysisSettings()
 
-/* 返回工作台 */
+/* 根据来源页面返回对应页面 */
 function goBack() {
-  router.push('/workspace')
+  const from = route.query.from as string | undefined
+  if (from === 'index') {
+    router.push('/')
+  } else if (from === 'workspace') {
+    router.push('/workspace')
+  } else {
+    router.back()
+  }
 }
 
 /* 处理分析模式切换 */
