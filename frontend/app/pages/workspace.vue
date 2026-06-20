@@ -190,6 +190,24 @@ watch(() => analysisStore.currentReport, (report) => {
   }
 })
 
+/* 同步 openTabs 与 sessionStore.sessions：会话被删除/清空时自动移除对应标签 */
+watch(() => sessionStore.sessions, (sessions) => {
+  const sessionIds = new Set(sessions.map(s => s.id))
+  const wasActiveRemoved = openTabs.value.some(tab => !sessionIds.has(tab.id) && tab.id === activeTabId.value)
+  /* 过滤掉已不存在的会话对应的标签 */
+  openTabs.value = openTabs.value.filter(tab => sessionIds.has(tab.id))
+  /* 如果当前激活的标签被移除，切换到剩余的第一个标签 */
+  if (wasActiveRemoved) {
+    const next = openTabs.value[0]
+    if (next) {
+      activeTabId.value = next.id
+      selectChat(next.id)
+    } else {
+      activeTabId.value = ''
+    }
+  }
+}, { deep: true })
+
 /* ========== 组合式函数初始化 ========== */
 
 /* 右键菜单管理 */
