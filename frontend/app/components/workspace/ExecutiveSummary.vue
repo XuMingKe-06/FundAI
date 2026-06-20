@@ -17,14 +17,7 @@
             {{ directionMap[shortTermDirection] }}
           </div>
           <div class="signal-card__confidence">
-            <div class="confidence-bar">
-              <div
-                class="confidence-bar__fill"
-                :class="`confidence-bar__fill--${shortTermDirection}`"
-                :style="{ width: `${shortTermConfidence * 100}%` }"
-              ></div>
-            </div>
-            <span class="confidence-text">{{ Math.round(shortTermConfidence * 100) }}%</span>
+            <span class="confidence-text">置信率：{{ Math.round(shortTermConfidence * 100) }}%</span>
           </div>
           <div class="signal-card__period">建议持有期：7-30天</div>
         </div>
@@ -38,14 +31,7 @@
             {{ directionMap[longTermDirection] }}
           </div>
           <div class="signal-card__confidence">
-            <div class="confidence-bar">
-              <div
-                class="confidence-bar__fill"
-                :class="`confidence-bar__fill--${longTermDirection}`"
-                :style="{ width: `${longTermConfidence * 100}%` }"
-              ></div>
-            </div>
-            <span class="confidence-text">{{ Math.round(longTermConfidence * 100) }}%</span>
+            <span class="confidence-text">置信率：{{ Math.round(longTermConfidence * 100) }}%</span>
           </div>
         </div>
       </div>
@@ -275,32 +261,6 @@ const topRiskAlerts = computed(() => props.riskAlerts.slice(0, 3))
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-
-.confidence-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-
-.confidence-bar__fill {
-  height: 100%;
-  border-radius: var(--radius-full);
-  transition: width var(--transition-base);
-}
-
-.confidence-bar__fill--buy {
-  background: var(--color-buy);
-}
-
-.confidence-bar__fill--sell {
-  background: var(--color-sell);
-}
-
-.confidence-bar__fill--hold {
-  background: var(--color-hold);
 }
 
 .confidence-text {
