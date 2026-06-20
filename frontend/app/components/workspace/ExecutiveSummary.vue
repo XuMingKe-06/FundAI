@@ -170,10 +170,6 @@ const topRiskAlerts = computed(() => props.riskAlerts.slice(0, 3))
   flex-direction: column;
   gap: var(--space-4);
   padding: var(--space-5);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-base);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-base);
 }
 
 .summary-header {

@@ -168,28 +168,9 @@
 /* 阶段卡片 */
 .phase-card {
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-base);
   background: var(--bg-elevated);
   overflow: hidden;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
-    background-color var(--transition-base);
-}
-
-.phase-card:hover {
-  border-color: var(--border-strong);
-}
-
-.agent-phase.running .phase-card {
-  border-color: var(--color-primary-200);
-  box-shadow: var(--shadow-sm), 0 0 0 1px var(--color-primary-100);
-}
-
-.agent-phase.completed .phase-card {
-  border-color: var(--color-success-100);
-}
-
-.agent-phase.error .phase-card {
-  border-color: var(--color-danger-100);
+  transition: background-color var(--transition-base);
 }
 
 /* 阶段头部 */
@@ -198,13 +179,6 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--transition-fast);
-}
-
-.phase-header:hover {
-  background: var(--bg-hover);
 }
 
 /* 智能体图标 */
@@ -274,41 +248,9 @@
   flex-shrink: 0;
 }
 
-/* 折叠/展开按钮 */
-.phase-toggle {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.phase-toggle:hover {
-  background: var(--bg-active);
-  color: var(--text-secondary);
-}
-
-.phase-toggle svg {
-  width: 14px;
-  height: 14px;
-  transition: transform var(--transition-base);
-}
-
-.agent-phase.collapsed .phase-toggle svg {
-  transform: rotate(-90deg);
-}
-
 /* 阶段内容体 */
 .phase-body {
   padding: 0 var(--space-4) var(--space-4);
-}
-
-.agent-phase.collapsed .phase-body {
-  display: none;
 }
 
 /* ==================== 阶段内部步骤 ==================== */
@@ -533,24 +475,6 @@
   margin-bottom: 0;
 }
 
-/* ==================== 决策阶段特殊样式 ==================== */
-.agent-phase.decision-phase .phase-card {
-  border-color: var(--color-primary-200);
-  box-shadow: var(--shadow-md);
-}
-
-.agent-phase.decision-phase.running .phase-card {
-  border-color: var(--color-primary-300);
-  box-shadow: var(--shadow-md), 0 0 0 2px var(--color-primary-100);
-}
-
-/* ==================== 聚焦智能体样式 ==================== */
-.agent-phase.focused .phase-card {
-  border-color: var(--color-primary-300);
-  box-shadow: 0 0 0 2px var(--color-primary-100), var(--shadow-md);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
 /* ==================== 辩论指示器 ==================== */
 .debate-indicator {
   margin: var(--space-3) 0;
@@ -593,6 +517,17 @@
   font-size: var(--text-xs);
   color: var(--text-tertiary);
   margin-top: 2px;
+}
+
+/* ==================== 空状态 ==================== */
+.agent-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10);
+  text-align: center;
+  color: var(--text-muted);
 }
 
 /* ==================== 思考指示器 ==================== */
