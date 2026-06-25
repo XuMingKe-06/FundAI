@@ -6,6 +6,7 @@ import json
 import asyncio
 from loguru import logger
 from datetime import datetime, date, timezone
+from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from sqlalchemy import select
 
 from app.core.database import get_async_session, utcnow
 from app.models.fund import Fund
-from app.models.analysis import AnalysisSession, AgentOutput, DecisionReport
+from app.models.analysis import AnalysisSession, DecisionReport
 from app.schemas.common import ApiResponse
 from app.schemas.analysis import (
     CreateSessionRequest,
@@ -26,23 +27,10 @@ from app.schemas.analysis import (
     TrendChart,
     TrendDataPoint
 )
-from app.agents.orchestrator import AgentOrchestrator
 from app.data_sources.manager import datasource_manager
-from app.services.sse_service import (
-    run_analysis_with_streaming,
-    _active_event_queues,
-    _active_queues_lock,
-    _active_event_buffers,
-    _active_running_agents,
-    _active_analysis_sessions,
-    _active_analysis_lock,
-)
-from app.services.report_service import (
-    save_agent_snapshot,
-    save_agent_outputs,
-    save_decision_report,
-    save_fallback_report,
-)
+from app.services.analysis_task_manager import analysis_task_manager
+from app.services.sse_service import run_analysis_with_streaming
+from app.services.report_service import save_agent_snapshot
 
 router = APIRouter(prefix="/analysis", tags=["分析"])
 
@@ -145,9 +133,9 @@ async def stream_analysis(
             detail="会话不存在"
         )
 
-    logger.info("启动分析流 | session_id={} | fund_code={} | mode={}", session_id, analysis_session_obj.fund_code, analysis_session_obj.analysis_mode)
+    logger.info("启动分析流 | session_id={} | fund_code={} | mode={} | status={}", session_id, analysis_session_obj.fund_code, analysis_session_obj.analysis_mode, analysis_session_obj.status)
 
-    # 如果会话已完成或失败，直接返回对应事件（处理前端重连场景）
+    # 如果会话已完成，直接返回完成事件（处理前端重连场景）
     if analysis_session_obj.status == "completed":
         async def completed_event_generator():
             yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
@@ -161,6 +149,7 @@ async def stream_analysis(
             }
         )
 
+    # 如果会话已失败，直接返回错误事件
     if analysis_session_obj.status == "failed":
         async def failed_event_generator():
             yield f"event: error\ndata: {json.dumps({'error_type': 'SessionFailed', 'message': '该分析任务已失败，请重新分析', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
@@ -174,224 +163,64 @@ async def stream_analysis(
             }
         )
 
-    # 如果会话状态为 running，检查是否有活跃的事件队列（页面刷新重连场景）
-    if analysis_session_obj.status == "running":
-        async with _active_queues_lock:
-            existing_queue = _active_event_queues.get(session_id)
-        if existing_queue is not None:
-            logger.info("分析流重连 | session_id={} | 复用已有队列", session_id)
-
-            # 先加载已有 agent outputs，在 reconnect_generator 中作为初始事件发送
-            agent_outputs_result = await analysis_session.execute(
-                select(AgentOutput).where(AgentOutput.session_id == session_id)
-            )
-            existing_outputs_list = agent_outputs_result.scalars().all()
-
-            async def reconnect_generator():
-                """重连生成器：先发送快照和运行中智能体状态，再回放缓冲区事件，最后从队列消费"""
-                # ---- 第1步：发送已完成智能体的快照（从数据库） ----
-                completed_agent_types: set[str] = set()
-                for ao in existing_outputs_list:
-                    thinking_process = None
-                    if ao.thinking_process:
-                        try:
-                            thinking_process = json.loads(ao.thinking_process) if isinstance(ao.thinking_process, str) else ao.thinking_process
-                        except (json.JSONDecodeError, TypeError):
-                            thinking_process = None
-                    tools_called = ao.tools_called if ao.tools_called else None
-                    status_str = "error" if ao.status == "failed" else ao.status
-                    score_val = float(ao.score) if ao.score else None
-                    snapshot_data = {
-                        "agent_type": ao.agent_type,
-                        "status": status_str,
-                        "score": score_val,
-                        "summary": ao.summary,
-                        "thinking_process": thinking_process,
-                        "tools_called": tools_called,
-                        "duration_ms": ao.duration_ms,
-                        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
-                    }
-                    completed_agent_types.add(ao.agent_type)
-                    yield f"event: agent_snapshot\ndata: {json.dumps(snapshot_data, ensure_ascii=False, default=str)}\n\n"
-
-                # ---- 第2步：发送运行中智能体的 agent_status 事件 ----
-                running_agents = _active_running_agents.get(session_id, set()).copy()
-                for agent_type in running_agents:
-                    if agent_type not in completed_agent_types:
-                        yield f"event: agent_status\ndata: {json.dumps({'agent_type': agent_type, 'status': 'running', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
-
-                # ---- 第3步：回放缓冲区中运行中智能体的历史事件 ----
-                buffer_snapshot = list(_active_event_buffers.get(session_id, []))
-                for buf_event_type, buf_data in buffer_snapshot:
-                    # 跳过内部信号
-                    if buf_event_type in ("_agent_done", "_analysis_done"):
-                        continue
-                    # 跳过已完成智能体的事件（已通过 agent_snapshot 发送完整快照）
-                    buf_agent_type = buf_data.get("agent_type") if isinstance(buf_data, dict) else None
-                    if buf_agent_type and buf_agent_type in completed_agent_types:
-                        continue
-                    # 跳过 agent_status 事件（已在第2步中发送）
-                    if buf_event_type == "agent_status":
-                        continue
-                    yield f"event: {buf_event_type}\ndata: {json.dumps(buf_data, ensure_ascii=False, default=str)}\n\n"
-
-                # ---- 第4步：从已有队列消费后续事件 ----
-                try:
-                    while True:
-                        try:
-                            event_type, data = await asyncio.wait_for(existing_queue.get(), timeout=0.5)
-                        except asyncio.TimeoutError:
-                            # 超时检查 session 是否已完成
-                            async with _active_analysis_lock:
-                                still_active = session_id in _active_analysis_sessions
-                            if not still_active:
-                                # 分析已完成，判断最终状态
-                                await analysis_session.refresh(analysis_session_obj)
-                                if analysis_session_obj.status == "completed":
-                                    yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
-                                else:
-                                    yield f"event: error\ndata: {json.dumps({'error_type': 'SessionFailed', 'message': '分析任务已结束', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
-                                return
-                            continue
-
-                        if event_type == "_analysis_done":
-                            yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
-                            return
-                        if event_type in ("_agent_done",):
-                            continue  # 内部信号，不转发
-                        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
-                except asyncio.CancelledError:
-                    logger.info("客户端断开连接 | session_id={} | 阶段=重连流消费", session_id)
-            return StreamingResponse(
-                reconnect_generator(),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
-            )
-
     # 查询基金信息
     fund_result = await analysis_session.execute(
         select(Fund).where(Fund.fund_code == analysis_session_obj.fund_code)
     )
     fund = fund_result.scalar_one_or_none()
 
-    # 并发跟踪：记录正在分析的会话（仅用于断开检测后的清理）
-    async with _active_analysis_lock:
-        _active_analysis_sessions.add(session_id)
+    # 构建分析上下文
+    context = {
+        "fund_info": {
+            "fund_code": analysis_session_obj.fund_code,
+            "fund_name": fund.fund_name if fund else "未知基金",
+            "fund_type": fund.fund_type if fund else None,
+            "fund_manager": fund.fund_manager if fund else None,
+            "establish_date": fund.establish_date if fund else None,
+            "current_scale": fund.current_scale if fund else None,
+        },
+        "user_preference": analysis_session_obj.user_preference,
+        "analysis_mode": analysis_session_obj.analysis_mode
+    }
 
-    # 更新会话状态
-    analysis_session_obj.status = "running"
-    await analysis_session.commit()
-
-    # 创建编排器实例
-    orchestrator = AgentOrchestrator()
+    # 加载前次分析报告（用于重新分析场景）
+    if analysis_session_obj.previous_session_id:
+        try:
+            prev_report_result = await analysis_session.execute(
+                select(DecisionReport).where(
+                    DecisionReport.session_id == analysis_session_obj.previous_session_id
+                )
+            )
+            prev_report = prev_report_result.scalar_one_or_none()
+            if prev_report:
+                context["previous_report"] = {
+                    "analysis_date": prev_report.created_at.isoformat() if prev_report.created_at else None,
+                    "short_term_decision": prev_report.short_term_decision or {},
+                    "long_term_decision": prev_report.long_term_decision or {},
+                    "agent_scores": prev_report.agent_scores or {},
+                    "risk_alerts": prev_report.risk_alerts or [],
+                }
+                logger.info("加载前次分析报告 | prev_session_id={}", analysis_session_obj.previous_session_id)
+        except Exception as e:
+            logger.warning("加载前次分析报告失败 | error={}", e)
 
     async def event_generator():
-        """SSE事件生成器"""
+        """SSE事件生成器：委托后台任务管理器执行分析并订阅事件流"""
         try:
-            # 构建分析上下文
-            context = {
-                "fund_info": {
-                    "fund_code": analysis_session_obj.fund_code,
-                    "fund_name": fund.fund_name if fund else "未知基金",
-                    "fund_type": fund.fund_type if fund else None,
-                    "fund_manager": fund.fund_manager if fund else None,
-                    "establish_date": fund.establish_date if fund else None,
-                    "current_scale": fund.current_scale if fund else None,
-                },
-                "user_preference": analysis_session_obj.user_preference,
-                "analysis_mode": analysis_session_obj.analysis_mode
-            }
-
-            # 加载前次分析报告（用于重新分析场景）
-            if analysis_session_obj.previous_session_id:
-                try:
-                    prev_report_result = await analysis_session.execute(
-                        select(DecisionReport).where(
-                            DecisionReport.session_id == analysis_session_obj.previous_session_id
-                        )
-                    )
-                    prev_report = prev_report_result.scalar_one_or_none()
-                    if prev_report:
-                        context["previous_report"] = {
-                            "analysis_date": prev_report.created_at.isoformat() if prev_report.created_at else None,
-                            "short_term_decision": prev_report.short_term_decision or {},
-                            "long_term_decision": prev_report.long_term_decision or {},
-                            "agent_scores": prev_report.agent_scores or {},
-                            "risk_alerts": prev_report.risk_alerts or [],
-                        }
-                        logger.info("加载前次分析报告 | prev_session_id={}", analysis_session_obj.previous_session_id)
-                except Exception as e:
-                    logger.warning("加载前次分析报告失败 | error={}", e)
-
-            # 运行完整分析流程（传入 session_id 支持重连复用队列）
+            # run_analysis_with_streaming 会启动或复用后台任务，并订阅其共享事件流
             async for event in run_analysis_with_streaming(
-                orchestrator,
                 analysis_session_obj.fund_code,
                 context,
                 request,
                 analysis_mode=analysis_session_obj.analysis_mode,
                 save_func=lambda agent: save_agent_snapshot(session_id, agent),
-                session_id=session_id
+                session_id=session_id,
             ):
                 yield event
 
-            # 保存智能体输出到数据库（允许失败，不影响报告生成）
-            try:
-                await save_agent_outputs(
-                    analysis_session,
-                    session_id,
-                    orchestrator
-                )
-            except Exception as e:
-                logger.error("保存智能体输出失败 | session_id={} | error={}", session_id, e)
-                await analysis_session.rollback()
-
-            # 保存决策报告到数据库
-            report_saved = False
-            try:
-                await save_decision_report(
-                    analysis_session,
-                    session_id,
-                    orchestrator
-                )
-                report_saved = True
-            except Exception as e:
-                logger.error("保存决策报告失败 | session_id={} | error={}", session_id, e)
-                await analysis_session.rollback()
-
-            # 如果正常报告保存失败，尝试保存降级报告
-            if not report_saved:
-                try:
-                    await save_fallback_report(
-                        analysis_session,
-                        session_id,
-                        orchestrator,
-                        "部分数据获取失败，报告基于有限数据生成"
-                    )
-                except Exception as e:
-                    logger.error("保存降级报告失败 | session_id={} | error={}", session_id, e)
-                    await analysis_session.rollback()
-
-            # 更新会话状态
-            analysis_session_obj.status = "completed"
-            analysis_session_obj.completed_at = utcnow()
-            await analysis_session.commit()
-
-            # 发送分析完成事件
-            yield f"event: analysis_complete\ndata: {json.dumps({'session_id': session_id, 'status': 'completed', 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
-
         except Exception as e:
-            logger.exception("分析过程发生错误 | session_id={} | error={}", session_id, e)
-
-            # 更新会话状态为失败
-            analysis_session_obj.status = "failed"
-            await analysis_session.commit()
-
+            logger.exception("分析流异常 | session_id={} | error={}", session_id, e)
             yield f"event: error\ndata: {json.dumps({'error_type': 'AnalysisError', 'message': str(e), 'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'})}\n\n"
-        finally:
-            # 清理：从活跃会话集合中移除
-            async with _active_analysis_lock:
-                _active_analysis_sessions.discard(session_id)
 
     return StreamingResponse(
         event_generator(),
@@ -400,6 +229,56 @@ async def stream_analysis(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.get("/sessions/{session_id}/status", response_model=ApiResponse[Dict[str, Any]])
+async def get_analysis_status(
+    session_id: str,
+    session: AsyncSession = Depends(get_async_session)
+):
+    """获取分析任务的实时状态（支持前端轮询或恢复时校验）"""
+    result = await session.execute(
+        select(AnalysisSession).where(AnalysisSession.id == session_id)
+    )
+    analysis_session_obj = result.scalar_one_or_none()
+
+    if not analysis_session_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会话不存在"
+        )
+
+    # 优先从内存中的任务管理器获取实时进度
+    task = analysis_task_manager.get_task_sync(session_id)
+    if task:
+        return ApiResponse(
+            code=200,
+            message="success",
+            data={
+                "session_id": session_id,
+                "fund_code": analysis_session_obj.fund_code,
+                "status": task.status,
+                "progress": task.progress,
+                "completed_agents": list(task.completed_agents),
+                "running_agents": list(task.running_agents),
+                "error_message": task.error_message,
+            }
+        )
+
+    # 内存中没有任务，从数据库返回
+    return ApiResponse(
+        code=200,
+        message="success",
+        data={
+            "session_id": session_id,
+            "fund_code": analysis_session_obj.fund_code,
+            "status": analysis_session_obj.status,
+            "progress": 100 if analysis_session_obj.status == "completed" else 0,
+            "completed_agents": [],
+            "running_agents": [],
+            "error_message": None,
         }
     )
 

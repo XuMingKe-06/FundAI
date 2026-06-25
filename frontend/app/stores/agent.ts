@@ -121,25 +121,30 @@ export const useAgentStore = defineStore('agent', () => {
     data?: Partial<AgentInfo>
   ) {
     const agent = agents.value.get(type)
-    if (agent) {
-      // 过滤掉 undefined 值，避免覆盖已有数据
-      const filteredData: Partial<AgentInfo> = {}
-      if (data) {
-        for (const [key, value] of Object.entries(data)) {
-          if (value !== undefined) {
-            (filteredData as any)[key] = value
-          }
+    if (!agent) return
+
+    /* 防止回放事件导致已完成/失败的智能体状态回退到运行中 */
+    if (status === 'running' && (agent.status === 'completed' || agent.status === 'error')) {
+      return
+    }
+
+    // 过滤掉 undefined 值，避免覆盖已有数据
+    const filteredData: Partial<AgentInfo> = {}
+    if (data) {
+      for (const [key, value] of Object.entries(data)) {
+        if (value !== undefined) {
+          (filteredData as any)[key] = value
         }
       }
-      // 创建新的 Map 实例以触发响应式更新
-      const newMap = new Map(agents.value)
-      newMap.set(type, {
-        ...agent,
-        status,
-        ...filteredData,
-      })
-      agents.value = newMap
     }
+    // 创建新的 Map 实例以触发响应式更新
+    const newMap = new Map(agents.value)
+    newMap.set(type, {
+      ...agent,
+      status,
+      ...filteredData,
+    })
+    agents.value = newMap
   }
 
   /* 设置智能体评分 */

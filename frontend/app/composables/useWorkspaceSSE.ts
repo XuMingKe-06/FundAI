@@ -106,10 +106,14 @@ export function useWorkspaceSSE(options: UseWorkspaceSSEOptions) {
       agentStore.handleAgentUpdate(updateData)
 
       /* 当第一个智能体开始运行时，自动选中并切换到 agent 视图 */
+      /* 仅在状态真实变为 running 时才切换，避免重连回放已完成的智能体时跳回 agent 视图 */
       if (data.status === 'running' && !hasAutoSelectedAgent.value) {
-        hasAutoSelectedAgent.value = true
-        agentStore.setCurrentAgent(data.agent_type as AgentType)
-        currentView.value = 'agent'
+        const currentAgent = agentStore.agents.get(data.agent_type as AgentType)
+        if (currentAgent && currentAgent.status === 'running') {
+          hasAutoSelectedAgent.value = true
+          agentStore.setCurrentAgent(data.agent_type as AgentType)
+          currentView.value = 'agent'
+        }
       }
 
       /* 更新左侧栏会话状态 */

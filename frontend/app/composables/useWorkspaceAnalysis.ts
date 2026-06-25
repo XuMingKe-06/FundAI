@@ -10,6 +10,7 @@ import { useAnalysisStore } from '~/stores/analysis'
 import { useSessionStore } from '~/stores/session'
 import { useAnalysisSettings, type AnalysisMode } from '~/composables/useAnalysisSettings'
 import sessionService from '~/services/session.service'
+import analysisService from '~/services/analysis.service'
 import type { Ref } from 'vue'
 
 /* 分析流程组合式函数的配置选项 */
@@ -50,6 +51,13 @@ export function useWorkspaceAnalysis(options: UseWorkspaceAnalysisOptions) {
   const canReanalyze = computed(() =>
     sessionStore.currentSession?.status === 'completed'
   )
+
+  /* 同步智能体进度到分析进度，确保页面刷新/重连后进度显示一致 */
+  watch(() => agentStore.progress, (val) => {
+    if (analysisStore.loading && val >= 0 && val <= 100) {
+      analysisStore.progress = val
+    }
+  })
 
   /* 查找同一基金代码的已完成会话 */
   function findCompletedSessionByFundCode(fundCode: string) {
@@ -284,6 +292,25 @@ export function useWorkspaceAnalysis(options: UseWorkspaceAnalysisOptions) {
         agentStore.restoreFromSessionData(agentOutputs)
       } else {
         agentStore.resetAgents()
+      }
+
+      /* 获取后端实时状态，校准进度与运行智能体，避免 DB 快照滞后 */
+      if (!analysisStore.isPaused) {
+        try {
+          const status = await analysisService.getAnalysisStatus(sessionId)
+          if (status.progress >= 0 && status.progress <= 100) {
+            analysisStore.progress = status.progress
+          }
+          status.runningAgents.forEach((agentType) => {
+            agentStore.updateAgentStatus(agentType as AgentType, 'running')
+          })
+          /* 如果后端显示已完成但会话状态尚未同步，直接加载报告 */
+          if (status.status === 'completed' && status.progress === 100) {
+            loadAnalysisReport(sessionId)
+          }
+        } catch {
+          /* 状态接口失败不影响 SSE 重连 */
+        }
       }
 
       /* 仅在未暂停时重连 SSE 流 */

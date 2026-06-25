@@ -217,6 +217,36 @@ export const analysisService = {
     return mapApiReportToReport(apiReport)
   },
 
+  /* 获取分析任务实时状态（用于页面刷新/重连后恢复进度） */
+  async getAnalysisStatus(sessionId: string): Promise<{
+    sessionId: string
+    fundCode: string
+    status: string
+    progress: number
+    completedAgents: string[]
+    runningAgents: string[]
+    errorMessage: string | null
+  }> {
+    const response = await get<{
+      session_id: string
+      fund_code: string
+      status: string
+      progress: number
+      completed_agents: string[]
+      running_agents: string[]
+      error_message: string | null
+    }>(`/analysis/sessions/${sessionId}/status`)
+    return {
+      sessionId: response.session_id,
+      fundCode: response.fund_code,
+      status: response.status,
+      progress: response.progress,
+      completedAgents: response.completed_agents || [],
+      runningAgents: response.running_agents || [],
+      errorMessage: response.error_message,
+    }
+  },
+
   /* 获取 SSE 流式分析进度 */
   getAnalysisStream(sessionId: string): EventSource | null {
     if (!import.meta.client) return null
