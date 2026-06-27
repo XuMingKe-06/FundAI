@@ -1,175 +1,279 @@
-# FundAI - 多智能体场外基金分析决策系统
+<div align="center">
 
-## 项目概述
+# FundAI - Multi-Agent Fund Analysis & Decision System
 
-FundAI 是一个基于多智能体协作的场外基金分析决策系统，通过多个专业智能体（基本面分析师、技术分析师、风险分析师、成本分析师、情绪分析师）协同工作，为用户提供经过成本校验的投资建议。
+</div>
 
-## 技术栈
+> This project is currently in the early development stage. Features, APIs. Production use is not recommended at this time. Contributions and feedback are welcome!
 
-### 后端
-- **Python 3.12+** - 主要开发语言
-- **FastAPI 0.109+** - Web框架
-- **SQLAlchemy 2.0+** - ORM
-- **PostgreSQL 15+** - 主数据库
-- **Redis 7.0+** - 缓存和消息队列
-- **LangChain/LangGraph** - 智能体框架
+<div align="center">
 
-### 前端
-- **Nuxt 4.x** - Vue.js 全栈框架
-- **Vue 3.5+** - 前端框架
-- **Element Plus** - UI组件库
-- **Pinia** - 状态管理
-- **ECharts** - 图表库
-- **TypeScript** - 类型支持
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+[![Node](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com/)
+[![Vue](https://img.shields.io/badge/Vue-3.5+-4FC08D.svg)](https://vuejs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-7.0+-DC382D.svg)](https://redis.io/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 项目结构
+**[中文](README_CN.md)** | **English**
+
+</div>
+
+---
+
+## Overview
+
+FundAI is a multi-agent collaborative fund analysis and decision-making system. Through coordinated work of multiple specialized agents (Fundamental Analyst, Technical Analyst, Risk Analyst, Cost Analyst, and Sentiment Analyst), it provides users with investment recommendations that have undergone cost verification.
+
+## Key Features
+
+- **Multi-Agent Collaboration**: Five specialized analytical agents working in parallel/series
+- **Intelligent Decision Making**: Decision agent synthesizes all analysis results to provide short-term/long-term investment recommendations
+- **Real-time Streaming**: SSE-based streaming analysis process visualization
+- **Debate Mechanism**: Detects scoring divergence and triggers agent debates for adjustment
+- **RAG Knowledge Enhancement**: LLM-driven agents with tool invocation and RAG knowledge enhancement
+- **Data Quality Validation**: Built-in data quality verification and provenance tracking
+- **Flexible Data Sources**: Support for AKShare and Tushare Pro data sources with auto-switching and caching
+
+## Architecture
+
+### Backend
+
+| Component | Technology |
+|-----------|------------|
+| **Runtime** | Python 3.12+ |
+| **Framework** | FastAPI 0.109+ |
+| **ORM** | SQLAlchemy 2.0+ (Async) |
+| **Database** | PostgreSQL 15+ |
+| **Cache** | Redis 7.0+ |
+| **Agent Framework** | LangChain / LangGraph |
+| **Vector Store** | ChromaDB |
+| **Data Sources** | AKShare, Tushare Pro |
+
+### Frontend
+
+| Component | Technology |
+|-----------|------------|
+| **Framework** | Nuxt 4.x |
+| **UI** | Vue 3.5+ |
+| **UI Components** | Element Plus |
+| **State Management** | Pinia |
+| **Charts** | ECharts |
+| **Language** | TypeScript |
+
+## Project Structure
 
 ```
 FundAI/
-├── app/                        # 后端应用
-│   ├── api/                    # API路由
-│   │   └── v1/
-│   │       └── endpoints/      # API端点
-│   ├── core/                   # 核心配置
-│   ├── models/                 # 数据库模型
-│   ├── schemas/                # Pydantic模型
-│   ├── agents/                 # 智能体模块
-│   ├── data_sources/           # 数据源适配器
-│   ├── services/               # 业务服务
-│   └── main.py                 # 应用入口
-├── frontend/                   # 前端应用
-│   ├── app/                    # Nuxt应用目录
-│   │   ├── components/         # Vue组件
-│   │   ├── composables/        # 组合式函数
-│   │   ├── pages/              # 页面路由
-│   │   ├── services/           # API服务
-│   │   ├── stores/             # Pinia状态管理
-│   │   └── utils/              # 工具函数
-│   ├── public/                 # 静态资源
-│   ├── server/                 # Nuxt服务端
-│   ├── nuxt.config.ts          # Nuxt配置
-│   └── package.json            # 前端依赖
-├── database/                   # 数据库脚本
-├── tests/                      # 测试模块
-├── requirements.txt            # 后端依赖
-└── README.md                   # 项目说明
+├── app/                        # Backend application
+│   ├── api/v1/endpoints/       # API endpoints
+│   ├── core/                   # Core configuration
+│   │   ├── config.py           # Settings management
+│   │   ├── database.py         # Async database engine
+│   │   ├── cache.py            # Redis cache
+│   │   └── calculations/       # Technical indicators
+│   ├── models/                 # SQLAlchemy ORM models
+│   ├── schemas/                # Pydantic models
+│   ├── agents/                 # Multi-agent system
+│   │   ├── base.py             # BaseAgent implementation
+│   │   ├── orchestrator.py     # Agent orchestration
+│   │   ├── fundamental.py      # Fundamental analyst
+│   │   ├── technical.py        # Technical analyst
+│   │   ├── risk.py             # Risk analyst
+│   │   ├── cost.py             # Cost analyst
+│   │   ├── sentiment.py        # Sentiment analyst
+│   │   ├── decision.py         # Decision analyst
+│   │   ├── prompts/            # System prompts
+│   │   └── tools/              # Agent tools
+│   ├── data_sources/           # Data source adapters
+│   ├── services/               # Business services
+│   └── main.py                 # Application entry
+├── frontend/                   # Frontend application
+│   ├── app/                    # Nuxt app directory
+│   │   ├── components/         # Vue components
+│   │   ├── composables/        # Composable functions
+│   │   ├── pages/              # Page routes
+│   │   ├── services/           # API services
+│   │   ├── stores/             # Pinia stores
+│   │   └── utils/              # Utility functions
+│   ├── server/                 # Nuxt server
+│   └── nuxt.config.ts          # Nuxt configuration
+├── database/                   # Database scripts
+├── tests/                      # Test modules
+├── requirements.txt            # Backend dependencies
+└── README.md                   # Project documentation
 ```
 
-## 快速开始
+## Quick Start
 
-### 1. 环境准备
+### Prerequisites
 
-确保已安装以下软件：
+Ensure the following are installed:
 - Python 3.12+
 - Node.js 22+
 - PostgreSQL 15+
 - Redis 7.0+
 
-### 2. 后端设置
+### Backend Setup
 
 ```powershell
-# 创建虚拟环境
+# Create virtual environment
 python -m venv venv
 .\venv\Scripts\activate
 
-# 安装依赖
+# Install dependencies
 pip install -r requirements.txt
 
-# 配置环境变量
+# Configure environment variables
 copy .env.example .env
-# 编辑 .env 文件，配置数据库连接等信息
+# Edit .env file to configure database connection and other settings
 
-# 初始化数据库
-# 执行 database/init_db.sql
+# Initialize database
+# Execute database/init_db.sql
 
-# 启动后端服务
+# Start backend server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. 前端设置
+### Frontend Setup
 
 ```powershell
-# 进入前端目录
+# Navigate to frontend directory
 cd frontend
 
-# 安装依赖
+# Install dependencies
 npm install
 
-# 启动开发服务器
+# Start development server
 npm run dev
 ```
 
-### 4. 访问应用
+### Access the Application
 
-- 前端应用: http://localhost:3000
-- 后端API文档: http://localhost:8000/docs
-- 健康检查: http://localhost:8000/health
+- Frontend Application: http://localhost:3000
+- Backend API Docs: http://localhost:8000/docs
+- Health Check: http://localhost:8000/health
 
-## API接口
+## API Endpoints
 
-### 认证接口
+### Authentication
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | /api/v1/auth/send-code | 发送验证码 |
-| POST | /api/v1/auth/register | 用户注册 |
-| POST | /api/v1/auth/login | 用户登录 |
-| POST | /api/v1/auth/logout | 用户登出 |
-| POST | /api/v1/auth/refresh | 刷新令牌 |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/v1/auth/send-code | Send verification code |
+| POST | /api/v1/auth/register | User registration |
+| POST | /api/v1/auth/login | User login |
+| POST | /api/v1/auth/logout | User logout |
+| POST | /api/v1/auth/refresh | Refresh token |
 
-### 基金接口
+### Funds
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /api/v1/funds/search | 搜索基金 |
-| GET | /api/v1/funds/{fund_code} | 获取基金详情 |
-| GET | /api/v1/funds/{fund_code}/nav | 获取净值历史 |
-| GET | /api/v1/funds/{fund_code}/holdings | 获取持仓信息 |
-| GET | /api/v1/funds/{fund_code}/fees | 获取费率信息 |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/funds/search | Search funds |
+| GET | /api/v1/funds/{fund_code} | Get fund details |
+| GET | /api/v1/funds/{fund_code}/nav | Get NAV history |
+| GET | /api/v1/funds/{fund_code}/holdings | Get holdings information |
+| GET | /api/v1/funds/{fund_code}/fees | Get fee information |
 
-### 分析接口
+### Analysis
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | /api/v1/analysis/sessions | 创建分析会话 |
-| GET | /api/v1/analysis/sessions/{session_id}/stream | SSE流式分析 |
-| GET | /api/v1/analysis/sessions/{session_id}/report | 获取分析报告 |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/v1/analysis/sessions | Create analysis session |
+| GET | /api/v1/analysis/sessions/{session_id}/stream | SSE streaming analysis |
+| GET | /api/v1/analysis/sessions/{session_id}/report | Get analysis report |
 
-### 会话接口
+### Sessions
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /api/v1/sessions | 获取会话列表 |
-| GET | /api/v1/sessions/{session_id} | 获取会话详情 |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/sessions | Get session list |
+| GET | /api/v1/sessions/{session_id} | Get session details |
 
-## 开发说明
+## Development
 
-### 后端开发
+### Backend Development
 
 ```powershell
-# 运行测试
+# Run tests
 pytest
 
-# 代码格式化
+# Code formatting
 black app/
 isort app/
 ```
 
-### 前端开发
+### Frontend Development
 
 ```powershell
 cd frontend
 
-# 构建生产版本
+# Build for production
 npm run build
 
-# 预览生产版本
+# Preview production build
 npm run preview
 
-# 类型检查
+# Type checking
 npm run typecheck
 ```
 
+## Docker Deployment
+
+```powershell
+# Start PostgreSQL + Redis + Application
+docker-compose up -d
+```
+
+## Core Architecture
+
+### Multi-Agent System
+
+- **5 Analytical Agents** execute in parallel/series: Fundamental, Technical, Risk, Cost, Sentiment
+- **1 Decision Agent** synthesizes all analysis results and provides short-term/long-term investment recommendations
+- Each agent is LLM-driven with tool invocation and RAG knowledge enhancement capabilities
+- Agents push SSE events to frontend through `EventCallback`
+
+### Analysis Workflow
+
+1. Build context (fetch fund data → data quality validation → data provenance tagging)
+2. Execute 5 analytical agents in parallel
+3. **Debate Mechanism**: Detect scoring divergence (threshold 1.5), diverging parties review each other and adjust scores
+4. Decision agent synthesizes scores and generates investment recommendations
+5. Historical results stored in `AgentMemory` for future reference
+
+### SSE Streaming
+
+- Real-time event pushing via `EventCallback` + `asyncio.Queue`
+- Event types: agent status changes, thinking process, tool calls, deep reasoning, debate rounds, progressive updates
+- Frontend subscribes via `EventSource` with pause/resume support
+
+### API Proxy
+
+- Frontend Nuxt proxies all `/api/v1/*` requests to backend via `server/routes/api/v1/[...].ts`
+- Frontend uses `process.env.NUXT_API_URL` or defaults to `http://localhost:8000`
+
+### LLM Configuration
+
+- LLM settings managed through frontend settings page, stored in `data/config.json`
+- Supports any OpenAI-compatible API (API URL, API Key, model name, temperature, etc.)
+- Configuration takes effect immediately without service restart
+
+### Data Sources
+
+- Supports AKShare and Tushare Pro data sources
+- `DataSourceManager` provides unified management with auto-switching and caching
+
+## Testing Strategy
+
+- **Framework**: pytest + pytest-asyncio (asyncio_mode = auto)
+- **Database**: In-memory SQLite with automatic table creation/cleanup per test
+- **HTTP Client**: httpx.AsyncClient + ASGITransport for direct ASGI application calls
+- **Key Mock Fixtures**: mock_llm_service, mock_datasource_manager, mock_rag_service
+- **Test Organization**: tests/ organized by module (test_agents/, test_api/, test_core/, etc.)
+
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) file for details.
